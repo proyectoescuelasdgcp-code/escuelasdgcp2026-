@@ -1,1586 +1,1603 @@
-/**
- * =====================================================
- * GOOGLE APPS SCRIPT - BACKEND CONTROL DE SUPERVISORES
- * Versión 4.0 - Con Mejoras de Consolidado y Limpieza de Fotos
- * =====================================================
- * 
- * FUNCIONALIDADES ORIGINALES:
- * ✅ Recibe reportes de la app
- * ✅ Guarda en Google Sheets
- * ✅ Guarda fotos en Drive
- * ✅ Envía email por cada reporte
- * ✅ Genera CONSOLIDADO DIARIO automático (Excel)
- * ✅ Genera INFORME WORD con fotos por centro/tiempo
- * ✅ BLOQUEA reportes duplicados por escuela/día
- * ✅ MUESTRA escuelas que NO reportaron en el consolidado
- * 
- * 🆕 NUEVAS FUNCIONALIDADES v4.0:
- * ✅ LIMPIEZA AUTOMÁTICA de fotos cada 15 días
- * ✅ Excel con CATEGORÍAS y UNIDADES DE MEDIDA
- * ✅ Hoja de COMENTARIOS POR CENTRO
- * ✅ Consolidado con TODOS LOS CENTROS visibles
- * ✅ Lista de centros y supervisores ACTUALIZADA
- * 
- * =====================================================
- */
- 
-// ==================== CONFIGURACIÓN ====================
-const CONFIG = {
-  EMAIL_DESTINO: 'proyectoescuelasdgcp@gmail.com',
-  NOMBRE_SPREADSHEET: 'Reportes_Supervisores_DGCP',
-  CARPETA_PRINCIPAL: 'DGCP_Supervisores',
-  CARPETA_FOTOS: 'Fotos',
-  CARPETA_INFORMES: 'Informes_Diarios',
-  CARPETA_CONSOLIDADOS: 'Consolidados',
-  HORA_CONSOLIDADO: 19, // 7 PM - hora para generar consolidado diario
-  ZONA_HORARIA: 'America/El_Salvador',
-  DIAS_LIMPIEZA_FOTOS: 15 // 🆕 Días para limpiar fotos antiguas
-};
- 
-// ==================== LISTA ACTUALIZADA DE SUPERVISORES ====================
-const SUPERVISORES = [
-  "EMERSON VALLADARES",
-  "LUISA MENDOZA",
-  "MOISES ARDÓN",
-  "CRISTIAN SALINAS",
-  "HENRY NAJO",
-  "KELVIN CORDOVA",
-  "EDGAR ARDON",
-  "RICARDO ALVARADO",
-  "ELIAS CRUZ",
-  "ALEX MARQUEZ",
-  "MAESSON BONILLA",
-  "JOSE FERNANDO",
-  "JOSE PANIAGUA",
-  "ANDY GONZALES",
-  "DAVID JUAREZ",
-  "DAVID FUNES"
-];
- 
-// ==================== LISTA ACTUALIZADA DE TODAS LAS ESCUELAS ====================
-const TODAS_LAS_ESCUELAS = {
-  "CENTRAL": [
-    "INSTITUTO NACIONAL DE SAN MATIAS",
-    "CENTRO ESCOLAR SAN RAMON, ROSARIO DE MORA",
-    "CENTRO ESCOLAR LOS ACOSTAS",
-    "CENTRO ESCOLAR SAN FELIPE",
-    "CENTRO ESCOLAR CASERÍO LAS FLORES, CIUDAD ARCE",
-    "CENTRO ESCOLAR CANTON LA NUEVA ENCARNACIÓN",
-    "CENTRO ESCOLAR CHANMICO",
-    "CENTRO ESCOALR AGUA FRIA LAS MERCEDEZ",
-    "CENTRO ESCOLAR CANTON LAS CRUCES",
-    "CENTRO ESCOLAR LOS AMATES",
-    "CENTRO ESCOLAR MASAJAPA",
-    "CENTRO ESCOLAR CASERIO LOS RUANOS, CANTON NANCE VERDE",
-    "CENTRO ESCOLAR SANTA BARBARITA",
-    "CENTRO ESCOLAR TEPEYAC",
-    "CENTRO ESCOLAR CASERIO LOTIFICACIÓN SAN CARLOS, CANTON LA JOYITA",
-    "CENTRO ESCOLAR PUERTA DEL LLANO",
-    "CENTRO ESCOLAR COOPERATIVA EL CEDRAL, NEJAPA",
-    "CENTRO ESCOLAR EL ANONAL",
-    "CENTRO ESCOLAR CANTON LA ESPERANZA",
-    "CENTRO ESCOLAR MONSEÑOR GREGORIO ROSA CHAVEZ",
-    "CENTRO ESCOLAR SAN ANTONIO GRANDE",
-    "CENTRO ESCOLAR CANTÓN HACIENDA SAN PEDRO LAS FLORES, SAN MATIAS",
-    "CENTRO ESCOLAR ROSENDO RODRIGUEZ",
-    "CENTRO ESCOLAR SAN LUIS CORDOVA, CANTON LOS TRONCONES",
-    "CENTRO ESCOLAR CASERÍO LOS LOTES, CANTÓN LA PUEBLA",
-    "CENTRO ESCOLAR CASERIO EL CERRITO",
-    "CENTRO ESCOLAR EL JABALINCITO",
-    "CENTRO ESCOLAR CASERÍO COLONIA LAS MARGARITAS ENTRE VÍAS, CANTÓN SANTA LUCÍA"
-  ],
-  "PARACENTRAL": [
-    "TERRY ALLEN",
-    "CENTRO ESCOLAR CANTÓN LA JOYA",
-    "CE SAN ANTONIO LOS PLATANATRES",
-    "CENTRO ESCOLAR PALO GALAN",
-    "CENTRO ESCOLAR CASERIO HACIENDA VIEJA, CANTON AZACUALPA",
-    "CENTRO ESCOLAR LOTIFICACIÓN LAS BRISAS",
-    "CENTRO ESCOLAR TEMPISQUE",
-    "CENTRO ESCOLAR CANTON PIEDRA GRANDE",
-    "EX PENAL SENSUNTEPEQUE",
-    "CENTRO ESCOLAR INGENIERO JOSE QUINTEROS",
-    "CENTRO ESCOLAR JOSE ANTONIO LAREYNAGA",
-    "CENTRO ESCOLAR CAMPO VERDE",
-    "CENTRO ESCOLAR VILLA GUACOTECTI",
-    "INSTITUTO NACIONAL DE CINQUERA",
-    "INSTITUTO NACIONAL DE JUTIAPA",
-    "CENTRO ESCOLAR VICTORIA",
-    "CENTRO ESCOLAR SAN JOSE LA CEIBA, CANTON SAN FERNANDO",
-    "CENTRO ESCOALR CASERÍO EL COYOLAR",
-    "CENTRO ESCOLAR CASERIO LAS FLORES, CANTON PARRAS LEMPA",
-    "CENTRO DE EDUCACIÓN PARVULARIA CLOTILDE HUEZO PRADO",
-    "CENTRO ESCOLAR BARTOLOME PERULAPIA",
-    "CENTRO ESCOLAR AMATITAN ARRIBA",
-    "CENTRO ESCOLAR LOS RODRIGUEZ"
-  ],
-  "OCCIDENTAL": [
-    "CENTRO ESCOLAR CASERÍO SANTA BARBARA"
-  ],
-  "ORIENTAL": [
-    "EXPENAL SAN MIGUEL"
-  ]
-};
- 
-// ==================== INVENTARIO CON CATEGORÍAS Y UNIDADES ====================
-const INVENTARIO_CONFIG = {
-  bodega_seca: {
-    nombre: "Bodega Seca",
-    items: [
-      { nombre: "Aceite", unidad: "Lb" },
-      { nombre: "Acesulfame", unidad: "Lb" },
-      { nombre: "Arroz precocido", unidad: "Lb" },
-      { nombre: "Aspartame", unidad: "Lb" },
-      { nombre: "ATOLINA", unidad: "Lb" },
-      { nombre: "Avena", unidad: "Lb" },
-      { nombre: "Azúcar", unidad: "Lb" },
-      { nombre: "Cafe para hervir", unidad: "Lb" },
-      { nombre: "Canela en polvo", unidad: "Lb" },
-      { nombre: "CONSOME", unidad: "Lb" },
-      { nombre: "Esencia bebida líquida", unidad: "Lb" },
-      { nombre: "Esencia en polvo", unidad: "Lb" },
-      { nombre: "Frijol grano", unidad: "Lb" },
-      { nombre: "Harina de maiz", unidad: "Lb" },
-      { nombre: "Maicena", unidad: "Lb" },
-      { nombre: "Margarina", unidad: "Lb" },
-      { nombre: "Oregano", unidad: "Lb" },
-      { nombre: "Pan galleta", unidad: "Unidad" },
-      { nombre: "Pimienta negra", unidad: "Lb" },
-      { nombre: "Sal", unidad: "Lb" },
-      { nombre: "Sal de ajo", unidad: "Lb" }
-    ]
-  },
-  vegetales: {
-    nombre: "Vegetales",
-    items: [
-      { nombre: "Ajo entero", unidad: "Lb" },
-      { nombre: "Cebolla", unidad: "Lb" },
-      { nombre: "Platano", unidad: "Unidad" },
-      { nombre: "Vegetales de temporada", unidad: "Lb" }
-    ]
-  },
-  carnicos: {
-    nombre: "Cárnicos",
-    items: [
-      { nombre: "Pollo", unidad: "Lb" },
-      { nombre: "Pollo molido", unidad: "Lb" },
-      { nombre: "Lomo de cerdo", unidad: "Lb" },
-      { nombre: "Jamón", unidad: "Lb" }
-    ]
-  },
-  gas: {
-    nombre: "Gas 25 Lb",
-    items: [
-      { nombre: "Tambos LLENOS", unidad: "Unidad" },
-      { nombre: "Tambos EN USO", unidad: "Unidad" },
-      { nombre: "Tambos VACÍOS", unidad: "Unidad" }
-    ]
-  },
-  lacteos: {
-    nombre: "Lácteos",
-    items: [
-      { nombre: "Leche en polvo", unidad: "Lb" },
-      { nombre: "Crema", unidad: "Lb" },
-      { nombre: "Huevo", unidad: "Unidad" }
-    ]
-  }
-};
- 
-// Obtener lista plana de todas las escuelas
-function obtenerTodasLasEscuelas() {
-  let todas = [];
-  Object.values(TODAS_LAS_ESCUELAS).forEach(escuelas => {
-    todas = todas.concat(escuelas);
-  });
-  return todas;
-}
- 
-// 🆕 Obtener unidad de medida para un item
-function obtenerUnidadMedida(categoriaKey, itemNombre) {
-  const categoria = INVENTARIO_CONFIG[categoriaKey];
-  if (!categoria) return "Unidad";
-  
-  const item = categoria.items.find(i => i.nombre === itemNombre);
-  return item ? item.unidad : "Unidad";
-}
- 
-// 🆕 Obtener nombre de categoría formateado
-function obtenerNombreCategoria(categoriaKey) {
-  const categoria = INVENTARIO_CONFIG[categoriaKey];
-  return categoria ? categoria.nombre : categoriaKey;
-}
- 
-// ==================== FUNCIONES PRINCIPALES ====================
- 
-/**
- * Maneja las peticiones POST de la aplicación
- */
-function doPost(e) {
-  try {
-    const data = JSON.parse(e.postData.contents);
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#059669">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="DGCP Control">
+    <meta name="description" content="Sistema de Control de Supervisores - DGCP v4.0">
     
-    // Verificar si ya existe reporte de esta escuela hoy
-    const duplicado = verificarReporteDuplicado(data.centro);
-    if (duplicado.existe) {
-      return ContentService
-        .createTextOutput(JSON.stringify({ 
-          success: false, 
-          error: 'DUPLICADO',
-          message: `Esta escuela ya envió reporte hoy a las ${duplicado.hora} por ${duplicado.supervisor}`
-        }))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+    <title>Control de Supervisores - DGCP</title>
     
-    // 1. Guardar en Google Sheets
-    const sheetResult = guardarEnSheets(data);
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="icon" type="image/png" href="icon-192.png">
     
-    // 2. Guardar fotos en Drive
-    const fotosUrls = guardarFotos(data);
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
-    // 3. Enviar email individual
-    enviarEmailReporte(data, fotosUrls);
-    
-    return ContentService
-      .createTextOutput(JSON.stringify({ 
-        success: true, 
-        message: 'Reporte guardado correctamente',
-        sheetUrl: sheetResult.url
-      }))
-      .setMimeType(ContentService.MimeType.JSON);
-      
-  } catch (error) {
-    console.error('Error en doPost:', error);
-    return ContentService
-      .createTextOutput(JSON.stringify({ success: false, error: error.message }))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-}
+    <style>
+        :root {
+            --primary: #059669;
+            --primary-dark: #047857;
+            --primary-light: #10b981;
+            --secondary: #0891b2;
+            --accent: #f59e0b;
+            --danger: #dc2626;
+            --danger-light: #fef2f2;
+            --success: #16a34a;
+            --bg: #f8fafc;
+            --card: #ffffff;
+            --text: #1e293b;
+            --text-light: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+            --radius: 16px;
+            --radius-lg: 24px;
+        }
  
-/**
- * Verifica si ya existe un reporte de esta escuela en el día actual
- */
-function verificarReporteDuplicado(centro) {
-  const hoy = Utilities.formatDate(new Date(), CONFIG.ZONA_HORARIA, 'yyyy-MM-dd');
-  
-  const ss = obtenerSpreadsheet();
-  if (!ss) return { existe: false };
-  
-  const sheet = ss.getSheetByName('Reportes');
-  if (!sheet) return { existe: false };
-  
-  const datos = sheet.getDataRange().getValues();
-  
-  for (let i = 1; i < datos.length; i++) {
-    const row = datos[i];
-    const fechaReporte = Utilities.formatDate(new Date(row[0]), CONFIG.ZONA_HORARIA, 'yyyy-MM-dd');
-    const centroReporte = row[3];
-    
-    if (fechaReporte === hoy && centroReporte === centro) {
-      return {
-        existe: true,
-        hora: row[5],
-        supervisor: row[4]
-      };
-    }
-  }
-  
-  return { existe: false };
-}
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
  
-/**
- * Maneja las peticiones GET
- */
-function doGet(e) {
-  return ContentService
-    .createTextOutput(JSON.stringify({ 
-      status: 'online', 
-      message: 'API Control de Supervisores DGCP v4.0',
-      timestamp: new Date().toISOString()
-    }))
-    .setMimeType(ContentService.MimeType.JSON);
-}
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            min-height: 100dvh;
+            overflow-x: hidden;
+        }
  
-// ==================== ESTRUCTURA DE CARPETAS ====================
+        .header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--shadow-lg);
+        }
  
-function obtenerEstructuraCarpetas() {
-  let carpetaPrincipal;
-  
-  const foldersPrincipal = DriveApp.getFoldersByName(CONFIG.CARPETA_PRINCIPAL);
-  if (foldersPrincipal.hasNext()) {
-    carpetaPrincipal = foldersPrincipal.next();
-  } else {
-    carpetaPrincipal = DriveApp.createFolder(CONFIG.CARPETA_PRINCIPAL);
-  }
-  
-  const estructura = {
-    principal: carpetaPrincipal,
-    fotos: obtenerOCrearSubcarpeta(carpetaPrincipal, CONFIG.CARPETA_FOTOS),
-    informes: obtenerOCrearSubcarpeta(carpetaPrincipal, CONFIG.CARPETA_INFORMES),
-    consolidados: obtenerOCrearSubcarpeta(carpetaPrincipal, CONFIG.CARPETA_CONSOLIDADOS)
-  };
-  
-  return estructura;
-}
+        .header h1 { font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em; }
+        .header p { font-size: 0.875rem; opacity: 0.9; margin-top: 2px; }
  
-function obtenerOCrearSubcarpeta(parent, nombre) {
-  const folders = parent.getFoldersByName(nombre);
-  if (folders.hasNext()) {
-    return folders.next();
-  }
-  return parent.createFolder(nombre);
-}
+        .header-info { display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
  
-// ==================== GUARDAR EN SHEETS ====================
+        .header-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.2);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            backdrop-filter: blur(10px);
+        }
  
-function guardarEnSheets(data) {
-  const carpetas = obtenerEstructuraCarpetas();
-  let ss;
-  
-  const files = carpetas.principal.getFilesByName(CONFIG.NOMBRE_SPREADSHEET);
-  if (files.hasNext()) {
-    ss = SpreadsheetApp.open(files.next());
-  } else {
-    ss = SpreadsheetApp.create(CONFIG.NOMBRE_SPREADSHEET);
-    const file = DriveApp.getFileById(ss.getId());
-    file.moveTo(carpetas.principal);
-    
-    configurarHojaReportes(ss);
-    configurarHojaInventario(ss);
-    configurarHojaResumen(ss);
-  }
-  
-  const sheetReportes = ss.getSheetByName('Reportes') || ss.getActiveSheet();
-  const itemsInventario = contarItemsInventario(data.inventario);
-  
-  sheetReportes.appendRow([
-    new Date(data.timestamp),
-    Utilities.formatDate(new Date(data.timestamp), CONFIG.ZONA_HORARIA, 'dd/MM/yyyy'),
-    data.zona,
-    data.centro,
-    data.supervisor,
-    Utilities.formatDate(new Date(data.horaInicio), CONFIG.ZONA_HORARIA, 'HH:mm'),
-    Utilities.formatDate(new Date(data.horaFin), CONFIG.ZONA_HORARIA, 'HH:mm'),
-    calcularDuracion(data.horaInicio, data.horaFin),
-    data.ubicacion?.lat || '',
-    data.ubicacion?.lng || '',
-    itemsInventario.total,
-    data.fotos?.length || 0,
-    obtenerTiemposComida(data.fotos),
-    data.comentarios || '',
-    data.esEmergencia ? 'SÍ' : 'NO',
-    data.motivoEmergencia || '',
-    data.centroEmergencia || ''
-  ]);
-  
-  // 🆕 Guardar inventario detallado con categorías y unidades
-  guardarInventarioDetallado(ss, data);
-  
-  return { spreadsheetId: ss.getId(), url: ss.getUrl() };
-}
+        .progress-bar { display: flex; gap: 6px; margin-top: 16px; }
  
-function configurarHojaReportes(ss) {
-  const sheet = ss.getActiveSheet();
-  sheet.setName('Reportes');
-  sheet.appendRow([
-    'Timestamp',
-    'Fecha',
-    'Zona',
-    'Centro',
-    'Supervisor',
-    'Hora Inicio',
-    'Hora Fin',
-    'Duración (min)',
-    'Latitud',
-    'Longitud',
-    'Items Inventario',
-    'Fotos',
-    'Tiempos Comida',
-    'Comentarios',
-    'Emergencia',
-    'Motivo Emergencia',
-    'Centro Emergencia'
-  ]);
-  sheet.getRange(1, 1, 1, 17).setFontWeight('bold').setBackground('#059669').setFontColor('white');
-  sheet.setFrozenRows(1);
-}
+        .progress-step {
+            flex: 1;
+            height: 6px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 3px;
+            transition: all 0.3s ease;
+        }
  
-// 🆕 Configuración mejorada de hoja de inventario
-function configurarHojaInventario(ss) {
-  const sheet = ss.insertSheet('Inventario Detallado');
-  sheet.appendRow([
-    'Fecha',
-    'Centro',
-    'Zona',
-    'Supervisor',
-    'Categoría',
-    'Producto',
-    'Cantidad',
-    'Unidad'
-  ]);
-  sheet.getRange(1, 1, 1, 8).setFontWeight('bold').setBackground('#0891b2').setFontColor('white');
-  sheet.setFrozenRows(1);
-}
+        .progress-step.active { background: white; }
  
-function configurarHojaResumen(ss) {
-  const sheet = ss.insertSheet('Resumen Diario');
-  sheet.appendRow([
-    'Fecha',
-    'Total Reportes',
-    'Supervisores Activos',
-    'Centros Visitados',
-    'Total Fotos',
-    'Emergencias',
-    'Escuelas Faltantes'
-  ]);
-  sheet.getRange(1, 1, 1, 7).setFontWeight('bold').setBackground('#f59e0b').setFontColor('white');
-  sheet.setFrozenRows(1);
-}
+        .main { padding: 20px; padding-bottom: 120px; max-width: 500px; margin: 0 auto; }
  
-// 🆕 Guardar inventario con categorías y unidades correctas
-function guardarInventarioDetallado(ss, data) {
-  const sheet = ss.getSheetByName('Inventario Detallado');
-  if (!sheet) return;
-  
-  const fecha = new Date(data.timestamp);
-  
-  Object.entries(data.inventario || {}).forEach(([key, value]) => {
-    if (value !== '' && value > 0) {
-      const partes = key.split('_');
-      const categoriaKey = partes[0];
-      const nombreItem = partes.slice(1).join(' ');
-      
-      // Obtener categoría y unidad correctas
-      const categoriaNombre = obtenerNombreCategoria(categoriaKey);
-      const unidad = obtenerUnidadMedida(categoriaKey, nombreItem);
-      
-      sheet.appendRow([
-        fecha,
-        data.centro,
-        data.zona,
-        data.supervisor,
-        categoriaNombre,
-        nombreItem,
-        value,
-        unidad
-      ]);
-    }
-  });
-}
+        .card {
+            background: var(--card);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
+            animation: slideUp 0.4s ease;
+        }
  
-// ==================== GUARDAR FOTOS ====================
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
  
-function guardarFotos(data) {
-  if (!data.fotosBase64 || data.fotosBase64.length === 0) {
-    return [];
-  }
-  
-  const carpetas = obtenerEstructuraCarpetas();
-  const fechaStr = Utilities.formatDate(new Date(data.timestamp), CONFIG.ZONA_HORARIA, 'yyyy-MM-dd');
-  
-  let carpetaFecha = obtenerOCrearSubcarpeta(carpetas.fotos, fechaStr);
-  
-  const nombreCentro = data.centro.substring(0, 50).replace(/[^a-zA-Z0-9\s]/g, '');
-  let carpetaCentro = obtenerOCrearSubcarpeta(carpetaFecha, nombreCentro);
-  
-  const urls = [];
-  const fotos = data.fotos || [];
-  
-  data.fotosBase64.forEach((base64, index) => {
-    try {
-      const tiempoComida = fotos[index]?.tiempoComida || 'Sin_clasificar';
-      const hora = fotos[index]?.hora || '';
-      
-      const base64Data = base64.replace(/^data:image\/\w+;base64,/, '');
-      const blob = Utilities.newBlob(
-        Utilities.base64Decode(base64Data), 
-        'image/jpeg', 
-        `${tiempoComida}_${hora.replace(':', '-')}_${index + 1}.jpg`
-      );
-      
-      const file = carpetaCentro.createFile(blob);
-      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-      
-      urls.push({
-        url: file.getUrl(),
-        id: file.getId(),
-        tiempoComida: tiempoComida,
-        centro: data.centro
-      });
-    } catch (e) {
-      console.error('Error guardando foto:', e);
-    }
-  });
-  
-  return urls;
-}
+        .card-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
  
-// ==================== 🆕 LIMPIEZA AUTOMÁTICA DE FOTOS ====================
+        .card-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
  
-/**
- * Limpia fotos con más de 15 días de antigüedad
- * EJECUTAR CON TRIGGER SEMANAL (domingos 3 AM)
- */
-function limpiarFotosAntiguas() {
-  const carpetas = obtenerEstructuraCarpetas();
-  const diasLimite = CONFIG.DIAS_LIMPIEZA_FOTOS;
-  const fechaLimite = new Date();
-  fechaLimite.setDate(fechaLimite.getDate() - diasLimite);
-  
-  let fotosEliminadas = 0;
-  let carpetasEliminadas = 0;
-  
-  const subcarpetas = carpetas.fotos.getFolders();
-  
-  while (subcarpetas.hasNext()) {
-    const subcarpeta = subcarpetas.next();
-    const nombreCarpeta = subcarpeta.getName();
-    
-    try {
-      // Parsear fecha del nombre de carpeta (formato: yyyy-MM-dd)
-      const partes = nombreCarpeta.split('-');
-      if (partes.length === 3) {
-        const fechaCarpeta = new Date(partes[0], partes[1] - 1, partes[2]);
-        
-        if (fechaCarpeta < fechaLimite) {
-          // Eliminar subcarpetas de centros
-          const carpetasCentros = subcarpeta.getFolders();
-          while (carpetasCentros.hasNext()) {
-            const carpetaCentro = carpetasCentros.next();
-            const archivos = carpetaCentro.getFiles();
-            while (archivos.hasNext()) {
-              archivos.next().setTrashed(true);
-              fotosEliminadas++;
+        .card-title { font-size: 1rem; font-weight: 700; color: var(--text); }
+        .card-subtitle { font-size: 0.75rem; color: var(--text-light); }
+ 
+        .btn-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+ 
+        .btn {
+            padding: 16px;
+            border-radius: var(--radius);
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 700;
+            border: 2px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            text-align: center;
+        }
+ 
+        .btn:active { transform: scale(0.97); }
+ 
+        .btn.selected {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+ 
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            color: white;
+            border: none;
+            padding: 18px 24px;
+            font-size: 1.1rem;
+            box-shadow: var(--shadow-lg);
+        }
+ 
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-full { width: 100%; }
+ 
+        .btn-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+ 
+        .btn-list .btn {
+            justify-content: flex-start;
+            text-align: left;
+            padding: 14px 16px;
+            font-size: 0.9rem;
+        }
+ 
+        .btn-list .btn.selected::before { content: "✓"; margin-right: 8px; font-weight: bold; }
+ 
+        .input-group { margin-bottom: 12px; }
+        .input-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+ 
+        .input {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            font-family: inherit;
+            font-size: 1rem;
+            background: var(--bg);
+            color: var(--text);
+            transition: all 0.2s ease;
+        }
+ 
+        .input:focus { outline: none; border-color: var(--primary); background: white; }
+ 
+        .input-number { width: 90px; text-align: center; font-size: 1.25rem; font-weight: 700; padding: 12px; }
+        textarea.input { resize: none; min-height: 100px; }
+        select.input { cursor: pointer; }
+ 
+        .tabs {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+            scrollbar-width: none;
+        }
+ 
+        .tabs::-webkit-scrollbar { display: none; }
+ 
+        .tab {
+            flex-shrink: 0;
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            border: 2px solid var(--border);
+            background: white;
+            color: var(--text-light);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+ 
+        .tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+ 
+        .inventory-list { background: var(--bg); border-radius: var(--radius); overflow: hidden; }
+ 
+        .inventory-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 16px;
+            background: white;
+            border-bottom: 1px solid var(--border);
+        }
+ 
+        .inventory-item:last-child { border-bottom: none; }
+        .inventory-item-name { font-weight: 600; font-size: 0.95rem; }
+        .inventory-item-unit { font-size: 0.75rem; color: var(--text-light); }
+ 
+        .photo-capture {
+            border: 3px dashed var(--primary);
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            text-align: center;
+            background: linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 100%);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+ 
+        .photo-capture:active {
+            transform: scale(0.98);
+            background: linear-gradient(135deg, #d1fae5 0%, #ccfbf1 100%);
+        }
+ 
+        .photo-capture-icon {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 2rem;
+            box-shadow: var(--shadow-lg);
+        }
+ 
+        .photo-capture-text { font-size: 1.1rem; font-weight: 700; color: var(--primary-dark); }
+        .photo-capture-hint { font-size: 0.85rem; color: var(--text-light); margin-top: 8px; }
+ 
+        .photo-grid { display: grid; gap: 12px; margin-top: 16px; }
+ 
+        .photo-card {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border-radius: var(--radius);
+            overflow: hidden;
+            position: relative;
+        }
+ 
+        .photo-preview { width: 100%; height: 180px; object-fit: cover; }
+        .photo-info { padding: 12px; color: white; }
+        .photo-time { font-weight: 700; font-size: 1rem; }
+        .photo-meta { font-size: 0.8rem; opacity: 0.8; margin-top: 4px; }
+ 
+        .photo-delete {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 36px;
+            height: 36px;
+            background: var(--danger);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 1.25rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow);
+        }
+ 
+        .toggle-container { display: flex; align-items: center; justify-content: space-between; }
+ 
+        .toggle {
+            width: 56px;
+            height: 32px;
+            background: #cbd5e1;
+            border-radius: 16px;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+ 
+        .toggle.active { background: var(--danger); }
+ 
+        .toggle::after {
+            content: "";
+            position: absolute;
+            width: 26px;
+            height: 26px;
+            background: white;
+            border-radius: 50%;
+            top: 3px;
+            left: 3px;
+            transition: all 0.3s ease;
+            box-shadow: var(--shadow);
+        }
+ 
+        .toggle.active::after { left: 27px; }
+ 
+        .summary-list { display: flex; flex-direction: column; gap: 12px; }
+ 
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+ 
+        .summary-label { color: var(--text-light); font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+        .summary-value { font-weight: 700; font-size: 0.95rem; text-align: right; max-width: 60%; }
+ 
+        .alert {
+            padding: 16px;
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: shake 0.4s ease;
+        }
+ 
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            75% { transform: translateX(8px); }
+        }
+ 
+        .alert-error { background: var(--danger-light); border: 1px solid #fecaca; color: var(--danger); }
+        .alert-icon { font-size: 1.5rem; flex-shrink: 0; }
+ 
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(20px);
+            padding: 16px 20px;
+            padding-bottom: max(16px, env(safe-area-inset-bottom));
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+ 
+        .bottom-nav .btn { flex: 1; padding: 16px; }
+        .btn-secondary { background: var(--bg); color: var(--text); border: 2px solid var(--border); }
+ 
+        .success-screen {
+            min-height: 100vh;
+            min-height: 100dvh;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+ 
+        .success-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            text-align: center;
+            max-width: 360px;
+            width: 100%;
+            box-shadow: var(--shadow-xl);
+            animation: bounceIn 0.6s ease;
+        }
+ 
+        @keyframes bounceIn {
+            0% { transform: scale(0.3); opacity: 0; }
+            50% { transform: scale(1.05); }
+            70% { transform: scale(0.9); }
+            100% { transform: scale(1); opacity: 1; }
+        }
+ 
+        .success-icon {
+            width: 88px;
+            height: 88px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 2.5rem;
+            box-shadow: var(--shadow-lg);
+        }
+ 
+        .success-title { font-size: 1.75rem; font-weight: 800; margin-bottom: 8px; }
+        .success-subtitle { color: var(--text-light); margin-bottom: 24px; }
+ 
+        .success-details {
+            background: var(--bg);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+ 
+        .success-detail { display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.9rem; }
+        .success-detail:not(:last-child) { border-bottom: 1px solid var(--border); }
+ 
+        .loading-screen {
+            min-height: 100vh;
+            min-height: 100dvh;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }
+ 
+        .spinner {
+            width: 64px;
+            height: 64px;
+            border: 4px solid rgba(255,255,255,0.2);
+            border-top-color: var(--primary-light);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 24px;
+        }
+ 
+        @keyframes spin { to { transform: rotate(360deg); } }
+ 
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.8);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            padding: 20px;
+            animation: fadeIn 0.2s ease;
+        }
+ 
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+ 
+        .modal {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 24px;
+            max-width: 340px;
+            width: 100%;
+            animation: slideUp 0.3s ease;
+        }
+ 
+        .modal-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 16px;
+            font-size: 2rem;
+        }
+ 
+        .modal-title { font-size: 1.25rem; font-weight: 700; text-align: center; margin-bottom: 20px; }
+        .modal-buttons { display: flex; flex-direction: column; gap: 10px; }
+        .modal-buttons .btn { padding: 16px; }
+ 
+        .btn-breakfast { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: none; }
+        .btn-lunch { background: linear-gradient(135deg, #eab308 0%, #ca8a04 100%); color: white; border: none; }
+        .btn-dinner { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; }
+ 
+        .intro-logo {
+            width: 96px;
+            height: 96px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            border-radius: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 3rem;
+            box-shadow: var(--shadow-xl);
+        }
+ 
+        .intro-text { text-align: center; color: var(--text-light); font-size: 0.95rem; margin-bottom: 24px; }
+ 
+        .hidden { display: none !important; }
+        .text-center { text-align: center; }
+        .mb-4 { margin-bottom: 16px; }
+        .text-danger { color: var(--danger); }
+        .bg-danger-light { background: var(--danger-light); }
+        .emergency-card { background: var(--danger-light); border: 2px solid #fecaca; }
+ 
+        .counter-badge {
+            background: var(--primary);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 12px;
+            text-align: center;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+ 
+    <script>
+        // ==================== DATA ACTUALIZADA ====================
+        const ESCUELAS_DATA = {
+            "CENTRAL": [
+                "INSTITUTO NACIONAL DE SAN MATIAS",
+                "CENTRO ESCOLAR SAN RAMON, ROSARIO DE MORA",
+                "CENTRO ESCOLAR LOS ACOSTAS",
+                "CENTRO ESCOLAR SAN FELIPE",
+                "CENTRO ESCOLAR CASERÍO LAS FLORES, CIUDAD ARCE",
+                "CENTRO ESCOLAR CANTON LA NUEVA ENCARNACIÓN",
+                "CENTRO ESCOLAR CHANMICO",
+                "CENTRO ESCOALR AGUA FRIA LAS MERCEDEZ",
+                "CENTRO ESCOLAR CANTON LAS CRUCES",
+                "CENTRO ESCOLAR LOS AMATES",
+                "CENTRO ESCOLAR MASAJAPA",
+                "CENTRO ESCOLAR CASERIO LOS RUANOS, CANTON NANCE VERDE",
+                "CENTRO ESCOLAR SANTA BARBARITA",
+                "CENTRO ESCOLAR TEPEYAC",
+                "CENTRO ESCOLAR CASERIO LOTIFICACIÓN SAN CARLOS, CANTON LA JOYITA",
+                "CENTRO ESCOLAR PUERTA DEL LLANO",
+                "CENTRO ESCOLAR COOPERATIVA EL CEDRAL, NEJAPA",
+                "CENTRO ESCOLAR EL ANONAL",
+                "CENTRO ESCOLAR CANTON LA ESPERANZA",
+                "CENTRO ESCOLAR MONSEÑOR GREGORIO ROSA CHAVEZ",
+                "CENTRO ESCOLAR SAN ANTONIO GRANDE",
+                "CENTRO ESCOLAR CANTÓN HACIENDA SAN PEDRO LAS FLORES, SAN MATIAS",
+                "CENTRO ESCOLAR ROSENDO RODRIGUEZ",
+                "CENTRO ESCOLAR SAN LUIS CORDOVA, CANTON LOS TRONCONES",
+                "CENTRO ESCOLAR CASERÍO LOS LOTES, CANTÓN LA PUEBLA",
+                "CENTRO ESCOLAR CASERIO EL CERRITO",
+                "CENTRO ESCOLAR EL JABALINCITO",
+                "CENTRO ESCOLAR CASERÍO COLONIA LAS MARGARITAS ENTRE VÍAS, CANTÓN SANTA LUCÍA"
+            ],
+            "PARACENTRAL": [
+                "TERRY ALLEN",
+                "CENTRO ESCOLAR CANTÓN LA JOYA",
+                "CE SAN ANTONIO LOS PLATANATRES",
+                "CENTRO ESCOLAR PALO GALAN",
+                "CENTRO ESCOLAR CASERIO HACIENDA VIEJA, CANTON AZACUALPA",
+                "CENTRO ESCOLAR LOTIFICACIÓN LAS BRISAS",
+                "CENTRO ESCOLAR TEMPISQUE",
+                "CENTRO ESCOLAR CANTON PIEDRA GRANDE",
+                "EX PENAL SENSUNTEPEQUE",
+                "CENTRO ESCOLAR INGENIERO JOSE QUINTEROS",
+                "CENTRO ESCOLAR JOSE ANTONIO LAREYNAGA",
+                "CENTRO ESCOLAR CAMPO VERDE",
+                "CENTRO ESCOLAR VILLA GUACOTECTI",
+                "INSTITUTO NACIONAL DE CINQUERA",
+                "INSTITUTO NACIONAL DE JUTIAPA",
+                "CENTRO ESCOLAR VICTORIA",
+                "CENTRO ESCOLAR SAN JOSE LA CEIBA, CANTON SAN FERNANDO",
+                "CENTRO ESCOALR CASERÍO EL COYOLAR",
+                "CENTRO ESCOLAR CASERIO LAS FLORES, CANTON PARRAS LEMPA",
+                "CENTRO DE EDUCACIÓN PARVULARIA CLOTILDE HUEZO PRADO",
+                "CENTRO ESCOLAR BARTOLOME PERULAPIA",
+                "CENTRO ESCOLAR AMATITAN ARRIBA",
+                "CENTRO ESCOLAR LOS RODRIGUEZ"
+            ],
+            "OCCIDENTAL": [
+                "CENTRO ESCOLAR CASERÍO SANTA BARBARA"
+            ],
+            "ORIENTAL": [
+                "EXPENAL SAN MIGUEL"
+            ]
+        };
+ 
+        const SUPERVISORES = [
+            "EMERSON VALLADARES", "LUISA MENDOZA", "MOISES ARDÓN", "CRISTIAN SALINAS",
+            "HENRY NAJO", "KELVIN CORDOVA", "EDGAR ARDON", "RICARDO ALVARADO",
+            "ELIAS CRUZ", "ALEX MARQUEZ", "MAESSON BONILLA", "JOSE FERNANDO",
+            "JOSE PANIAGUA", "ANDY GONZALES", "DAVID JUAREZ", "DAVID FUNES"
+        ];
+ 
+        const INVENTARIO = {
+            bodega_seca: {
+                nombre: "Bodega Seca",
+                emoji: "🏪",
+                items: [
+                    { nombre: "Aceite", unidad: "Lb" },
+                    { nombre: "Acesulfame", unidad: "Lb" },
+                    { nombre: "Arroz precocido", unidad: "Lb" },
+                    { nombre: "Aspartame", unidad: "Lb" },
+                    { nombre: "ATOLINA", unidad: "Lb" },
+                    { nombre: "Avena", unidad: "Lb" },
+                    { nombre: "Azúcar", unidad: "Lb" },
+                    { nombre: "Cafe para hervir", unidad: "Lb" },
+                    { nombre: "Canela en polvo", unidad: "Lb" },
+                    { nombre: "CONSOME", unidad: "Lb" },
+                    { nombre: "Esencia bebida líquida", unidad: "Lb" },
+                    { nombre: "Esencia en polvo", unidad: "Lb" },
+                    { nombre: "Frijol grano", unidad: "Lb" },
+                    { nombre: "Harina de maiz", unidad: "Lb" },
+                    { nombre: "Maicena", unidad: "Lb" },
+                    { nombre: "Margarina", unidad: "Lb" },
+                    { nombre: "Oregano", unidad: "Lb" },
+                    { nombre: "Pan galleta", unidad: "Unidad" },
+                    { nombre: "Pimienta negra", unidad: "Lb" },
+                    { nombre: "Sal", unidad: "Lb" },
+                    { nombre: "Sal de ajo", unidad: "Lb" }
+                ]
+            },
+            vegetales: {
+                nombre: "Vegetales",
+                emoji: "🥕",
+                items: [
+                    { nombre: "Ajo entero", unidad: "Lb" },
+                    { nombre: "Cebolla", unidad: "Lb" },
+                    { nombre: "Platano", unidad: "Unidad" },
+                    { nombre: "Vegetales de temporada", unidad: "Lb" }
+                ]
+            },
+            carnicos: {
+                nombre: "Cárnicos",
+                emoji: "🍗",
+                items: [
+                    { nombre: "Pollo", unidad: "Lb" },
+                    { nombre: "Pollo molido", unidad: "Lb" },
+                    { nombre: "Lomo de cerdo", unidad: "Lb" },
+                    { nombre: "Jamón", unidad: "Lb" }
+                ]
+            },
+            gas: {
+                nombre: "Gas 25 Lb",
+                emoji: "🔥",
+                items: [
+                    { nombre: "Tambos LLENOS", unidad: "Unidad" },
+                    { nombre: "Tambos EN USO", unidad: "Unidad" },
+                    { nombre: "Tambos VACÍOS", unidad: "Unidad" }
+                ]
+            },
+            lacteos: {
+                nombre: "Lácteos",
+                emoji: "🥛",
+                items: [
+                    { nombre: "Leche en polvo", unidad: "Lb" },
+                    { nombre: "Crema", unidad: "Lb" },
+                    { nombre: "Huevo", unidad: "Unidad" }
+                ]
             }
-            carpetaCentro.setTrashed(true);
-          }
-          
-          // Eliminar archivos directos en la carpeta de fecha
-          const archivosDirectos = subcarpeta.getFiles();
-          while (archivosDirectos.hasNext()) {
-            archivosDirectos.next().setTrashed(true);
-            fotosEliminadas++;
-          }
-          
-          subcarpeta.setTrashed(true);
-          carpetasEliminadas++;
+        };
+ 
+        // ==================== STATE ====================
+        let state = {
+            paso: 0,
+            zona: '',
+            centro: '',
+            supervisor: '',
+            horaInicio: null,
+            ubicacion: null,
+            inventario: {},
+            fotos: [],
+            comentarios: '',
+            esEmergencia: false,
+            motivoEmergencia: '',
+            centroEmergencia: '',
+            categoriaActiva: 'bodega_seca',
+            error: '',
+            loading: false,
+            enviado: false,
+            modalTiempo: false,
+            fotoTemp: null,
+            modalRecuperar: false
+        };
+ 
+        // ==================== AUTO-GUARDADO ====================
+        const STORAGE_KEY = 'dgcp_reporte_progreso';
+        
+        function guardarEstado() {
+            try {
+                const estadoGuardar = {
+                    paso: state.paso,
+                    zona: state.zona,
+                    centro: state.centro,
+                    supervisor: state.supervisor,
+                    horaInicio: state.horaInicio ? state.horaInicio.toISOString() : null,
+                    ubicacion: state.ubicacion,
+                    inventario: state.inventario,
+                    fotos: state.fotos,
+                    comentarios: state.comentarios,
+                    esEmergencia: state.esEmergencia,
+                    motivoEmergencia: state.motivoEmergencia,
+                    centroEmergencia: state.centroEmergencia,
+                    categoriaActiva: state.categoriaActiva,
+                    guardadoEn: new Date().toISOString()
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(estadoGuardar));
+            } catch (e) {
+                console.log('Error guardando estado:', e);
+            }
         }
-      }
-    } catch (e) {
-      console.log('Error procesando carpeta ' + nombreCarpeta + ':', e);
-    }
-  }
-  
-  console.log(`Limpieza completada: ${fotosEliminadas} fotos y ${carpetasEliminadas} carpetas eliminadas`);
-  
-  // Enviar notificación
-  if (fotosEliminadas > 0) {
-    GmailApp.sendEmail(
-      CONFIG.EMAIL_DESTINO,
-      '🧹 Limpieza de fotos DGCP completada',
-      `Se han eliminado ${fotosEliminadas} fotos y ${carpetasEliminadas} carpetas con más de ${diasLimite} días de antigüedad.\n\nFecha: ${new Date().toLocaleString('es-SV')}`
-    );
-  }
-}
- 
-// ==================== ENVIAR EMAIL ====================
- 
-function enviarEmailReporte(data, fotosUrls) {
-  const fecha = Utilities.formatDate(new Date(data.timestamp), CONFIG.ZONA_HORARIA, 'dd/MM/yyyy HH:mm');
-  
-  let inventarioHTML = generarTablaInventario(data.inventario);
-  let fotosHTML = generarSeccionFotos(fotosUrls);
-  let emergenciaHTML = data.esEmergencia ? generarAlertaEmergencia(data) : '';
-  
-  const htmlBody = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: linear-gradient(135deg, #059669 0%, #0891b2 100%); color: white; padding: 24px; border-radius: 12px 12px 0 0; }
-        .header h1 { margin: 0; font-size: 22px; }
-        .header p { margin: 8px 0 0; opacity: 0.9; }
-        .content { background: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; }
-        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .info-box { background: white; padding: 16px; border-radius: 10px; border: 1px solid #e2e8f0; }
-        .label { color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .value { font-weight: 600; font-size: 15px; color: #1e293b; margin-top: 4px; }
-        table { border-collapse: collapse; width: 100%; margin: 16px 0; }
-        th { background: #059669; color: white; padding: 10px; text-align: left; font-size: 13px; }
-        td { padding: 10px; border: 1px solid #e2e8f0; font-size: 13px; }
-        tr:nth-child(even) { background: #f8fafc; }
-        .emergency { background: #fef2f2; border: 2px solid #dc2626; padding: 16px; border-radius: 10px; margin: 16px 0; }
-        .emergency h3 { color: #dc2626; margin: 0 0 8px; }
-        .footer { background: #f1f5f9; padding: 16px; text-align: center; font-size: 12px; color: #64748b; border-radius: 0 0 12px 12px; }
-        .btn { display: inline-block; background: #059669; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; margin: 4px; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1>📋 Reporte de Supervisión</h1>
-        <p>${fecha}</p>
-      </div>
-      
-      <div class="content">
-        <div class="info-grid">
-          <div class="info-box">
-            <div class="label">📍 Zona</div>
-            <div class="value">${data.zona}</div>
-          </div>
-          <div class="info-box">
-            <div class="label">👤 Supervisor</div>
-            <div class="value">${data.supervisor}</div>
-          </div>
-        </div>
         
-        <div class="info-box" style="margin-top: 12px;">
-          <div class="label">🏢 Centro Escolar</div>
-          <div class="value">${data.centro}</div>
-        </div>
-        
-        <div class="info-grid" style="margin-top: 12px;">
-          <div class="info-box">
-            <div class="label">🕐 Hora Inicio</div>
-            <div class="value" style="color: #059669;">${Utilities.formatDate(new Date(data.horaInicio), CONFIG.ZONA_HORARIA, 'HH:mm')}</div>
-          </div>
-          <div class="info-box">
-            <div class="label">🕐 Hora Fin</div>
-            <div class="value" style="color: #0891b2;">${Utilities.formatDate(new Date(data.horaFin), CONFIG.ZONA_HORARIA, 'HH:mm')}</div>
-          </div>
-        </div>
-        
-        <div class="info-box" style="margin-top: 12px;">
-          <div class="label">📍 Ubicación GPS</div>
-          <div class="value">
-            LAT: ${data.ubicacion?.lat?.toFixed(6) || 'N/A'} | LNG: ${data.ubicacion?.lng?.toFixed(6) || 'N/A'}
-            ${data.ubicacion ? `<br><a href="https://www.google.com/maps?q=${data.ubicacion.lat},${data.ubicacion.lng}" target="_blank" class="btn" style="font-size: 12px; padding: 6px 12px; margin-top: 8px;">Ver en Mapa</a>` : ''}
-          </div>
-        </div>
-        
-        ${emergenciaHTML}
-        
-        <h3 style="margin-top: 24px; color: #1e293b;">📦 Inventario Registrado</h3>
-        ${inventarioHTML}
-        
-        ${data.comentarios ? `
-          <div class="info-box" style="margin-top: 16px; background: #fffbeb; border-color: #fde68a;">
-            <div class="label">💬 Comentarios</div>
-            <div class="value" style="font-weight: normal;">${data.comentarios}</div>
-          </div>
-        ` : ''}
-        
-        ${fotosHTML}
-      </div>
-      
-      <div class="footer">
-        <strong>Sistema de Control de Supervisores - DGCP</strong><br>
-        Reporte generado automáticamente • ${fecha}
-      </div>
-    </body>
-    </html>
-  `;
-  
-  const asunto = `📋 ${data.supervisor} - ${data.centro} (${Utilities.formatDate(new Date(data.timestamp), CONFIG.ZONA_HORARIA, 'dd/MM/yyyy HH:mm')})`;
-  
-  GmailApp.sendEmail(CONFIG.EMAIL_DESTINO, asunto, '', {
-    htmlBody: htmlBody,
-    name: 'Sistema DGCP Supervisores'
-  });
-}
- 
-// ==================== CONSOLIDADO DIARIO ====================
- 
-function obtenerEscuelasFaltantes(reportesHoy) {
-  const todasLasEscuelas = obtenerTodasLasEscuelas();
-  const escuelasQueReportaron = reportesHoy.map(r => r[3]);
-  
-  const faltantes = {};
-  
-  Object.entries(TODAS_LAS_ESCUELAS).forEach(([zona, escuelas]) => {
-    const faltantesZona = escuelas.filter(escuela => !escuelasQueReportaron.includes(escuela));
-    if (faltantesZona.length > 0) {
-      faltantes[zona] = faltantesZona;
-    }
-  });
-  
-  return faltantes;
-}
- 
-/**
- * Genera el consolidado diario - EJECUTAR CON TRIGGER A LAS 7 PM
- */
-function generarConsolidadoDiario() {
-  const hoy = new Date();
-  const fechaStr = Utilities.formatDate(hoy, CONFIG.ZONA_HORARIA, 'yyyy-MM-dd');
-  const fechaDisplay = Utilities.formatDate(hoy, CONFIG.ZONA_HORARIA, 'dd/MM/yyyy');
-  
-  const carpetas = obtenerEstructuraCarpetas();
-  
-  const ss = obtenerSpreadsheet();
-  if (!ss) {
-    console.log('No hay spreadsheet de reportes');
-    return;
-  }
-  
-  const sheetReportes = ss.getSheetByName('Reportes');
-  const datos = sheetReportes.getDataRange().getValues();
-  
-  const reportesHoy = datos.filter((row, index) => {
-    if (index === 0) return false;
-    const fechaReporte = Utilities.formatDate(new Date(row[0]), CONFIG.ZONA_HORARIA, 'yyyy-MM-dd');
-    return fechaReporte === fechaStr;
-  });
-  
-  const escuelasFaltantes = obtenerEscuelasFaltantes(reportesHoy);
-  const totalFaltantes = Object.values(escuelasFaltantes).flat().length;
-  const totalEscuelas = obtenerTodasLasEscuelas().length;
-  
-  const consolidado = SpreadsheetApp.create(`Consolidado_${fechaStr}`);
-  const file = DriveApp.getFileById(consolidado.getId());
-  file.moveTo(carpetas.consolidados);
-  
-  // Hoja 1: Resumen General
-  const hResumen = consolidado.getActiveSheet();
-  hResumen.setName('Resumen General');
-  crearResumenGeneral(hResumen, reportesHoy, fechaDisplay, escuelasFaltantes, totalEscuelas);
-  
-  // Hoja 2: Detalle por Centro
-  const hDetalle = consolidado.insertSheet('Detalle por Centro');
-  crearDetallePorCentro(hDetalle, reportesHoy);
-  
-  // Hoja 3: Inventario Consolidado (🆕 MEJORADO con categorías y unidades)
-  const hInventario = consolidado.insertSheet('Inventario Consolidado');
-  crearInventarioConsolidadoMejorado(hInventario, ss, fechaStr);
-  
-  // Hoja 4: Control de Tiempos
-  const hTiempos = consolidado.insertSheet('Control de Tiempos');
-  crearControlTiempos(hTiempos, reportesHoy);
-  
-  // Hoja 5: Escuelas Faltantes
-  const hFaltantes = consolidado.insertSheet('ESCUELAS SIN REPORTE');
-  crearHojaFaltantes(hFaltantes, escuelasFaltantes);
-  
-  // 🆕 Hoja 6: COMENTARIOS POR CENTRO
-  const hComentarios = consolidado.insertSheet('Comentarios por Centro');
-  crearHojaComentariosPorCentro(hComentarios, reportesHoy);
-  
-  // Generar informe Word
-  const docUrl = generarInformeWord(fechaStr, fechaDisplay, reportesHoy, carpetas, escuelasFaltantes);
-  
-  // Enviar email con consolidado
-  enviarEmailConsolidado(fechaDisplay, consolidado.getUrl(), docUrl, reportesHoy, escuelasFaltantes, totalEscuelas);
-  
-  // Actualizar hoja de resumen diario
-  actualizarResumenDiario(ss, fechaDisplay, reportesHoy, totalFaltantes);
-  
-  console.log('Consolidado diario generado exitosamente');
-}
- 
-// 🆕 NUEVA FUNCIÓN: Hoja de Comentarios por Centro
-function crearHojaComentariosPorCentro(sheet, reportes) {
-  sheet.appendRow(['COMENTARIOS Y OBSERVACIONES POR CENTRO']);
-  sheet.getRange(1, 1).setFontSize(14).setFontWeight('bold').setFontColor('#f59e0b');
-  
-  sheet.appendRow(['']);
-  sheet.appendRow(['Zona', 'Centro Escolar', 'Supervisor', 'Comentarios/Observaciones', '¿Emergencia?', 'Motivo Emergencia', 'Centro Traslado']);
-  sheet.getRange(3, 1, 1, 7).setFontWeight('bold').setBackground('#f59e0b').setFontColor('white');
-  
-  // Agrupar comentarios por centro
-  const comentariosPorCentro = {};
-  
-  reportes.forEach(r => {
-    const centro = r[3];
-    const zona = r[2];
-    const supervisor = r[4];
-    const comentario = r[13] || '';
-    const esEmergencia = r[14];
-    const motivoEmergencia = r[15] || '';
-    const centroTraslado = r[16] || '';
-    
-    if (!comentariosPorCentro[centro]) {
-      comentariosPorCentro[centro] = {
-        zona: zona,
-        supervisor: supervisor,
-        comentarios: [],
-        esEmergencia: false,
-        motivoEmergencia: '',
-        centroTraslado: ''
-      };
-    }
-    
-    if (comentario && comentario.trim()) {
-      comentariosPorCentro[centro].comentarios.push(comentario);
-    }
-    
-    if (esEmergencia === 'SÍ') {
-      comentariosPorCentro[centro].esEmergencia = true;
-      comentariosPorCentro[centro].motivoEmergencia = motivoEmergencia;
-      comentariosPorCentro[centro].centroTraslado = centroTraslado;
-    }
-  });
-  
-  let row = 4;
-  Object.entries(comentariosPorCentro).sort((a, b) => a[0].localeCompare(b[0])).forEach(([centro, info]) => {
-    const comentariosTexto = info.comentarios.length > 0 ? info.comentarios.join(' | ') : '-';
-    
-    sheet.appendRow([
-      info.zona,
-      centro,
-      info.supervisor,
-      comentariosTexto,
-      info.esEmergencia ? '⚠️ SÍ' : 'NO',
-      info.motivoEmergencia || '-',
-      info.centroTraslado || '-'
-    ]);
-    
-    // Resaltar emergencias
-    if (info.esEmergencia) {
-      sheet.getRange(row, 1, 1, 7).setBackground('#fef2f2');
-    }
-    
-    // Resaltar comentarios importantes
-    if (info.comentarios.length > 0) {
-      sheet.getRange(row, 4).setBackground('#fffbeb');
-    }
-    
-    row++;
-  });
-  
-  sheet.autoResizeColumns(1, 7);
-}
- 
-// 🆕 NUEVA FUNCIÓN: Inventario Consolidado Mejorado con categorías y unidades
-function crearInventarioConsolidadoMejorado(sheet, ss, fechaStr) {
-  const hInventario = ss.getSheetByName('Inventario Detallado');
-  if (!hInventario) {
-    sheet.appendRow(['No hay datos de inventario']);
-    return;
-  }
-  
-  const datos = hInventario.getDataRange().getValues();
-  const inventarioHoy = datos.filter((row, index) => {
-    if (index === 0) return false;
-    const fechaInv = Utilities.formatDate(new Date(row[0]), CONFIG.ZONA_HORARIA, 'yyyy-MM-dd');
-    return fechaInv === fechaStr;
-  });
-  
-  // ===== SECCIÓN 1: Detalle por Centro =====
-  sheet.appendRow(['📋 INVENTARIO DETALLADO POR CENTRO']);
-  sheet.getRange(1, 1).setFontSize(14).setFontWeight('bold');
-  sheet.appendRow(['']);
-  
-  sheet.appendRow(['Centro', 'Zona', 'Categoría', 'Producto', 'Cantidad', 'Unidad']);
-  sheet.getRange(3, 1, 1, 6).setFontWeight('bold').setBackground('#0891b2').setFontColor('white');
-  
-  let row = 4;
-  
-  // Ordenar por centro
-  const inventarioOrdenado = inventarioHoy.sort((a, b) => a[1].localeCompare(b[1]));
-  
-  inventarioOrdenado.forEach(r => {
-    sheet.appendRow([
-      r[1],  // Centro
-      r[2],  // Zona
-      r[4],  // Categoría
-      r[5],  // Producto
-      r[6],  // Cantidad
-      r[7]   // Unidad
-    ]);
-    row++;
-  });
-  
-  // ===== SECCIÓN 2: Consolidado Total =====
-  row += 2;
-  sheet.getRange(row, 1).setValue('📊 CONSOLIDADO TOTAL POR CATEGORÍA').setFontSize(14).setFontWeight('bold');
-  row += 2;
-  
-  sheet.getRange(row, 1, 1, 4).setValues([['Categoría', 'Producto', 'Total', 'Unidad']]);
-  sheet.getRange(row, 1, 1, 4).setFontWeight('bold').setBackground('#059669').setFontColor('white');
-  row++;
-  
-  // Agrupar por categoría y producto
-  const totales = {};
-  inventarioHoy.forEach(r => {
-    const categoria = r[4];
-    const producto = r[5];
-    const cantidad = parseFloat(r[6]) || 0;
-    const unidad = r[7];
-    const key = `${categoria}|||${producto}|||${unidad}`;
-    
-    if (!totales[key]) {
-      totales[key] = { categoria, producto, total: 0, unidad };
-    }
-    totales[key].total += cantidad;
-  });
-  
-  // Ordenar y escribir
-  Object.values(totales)
-    .sort((a, b) => a.categoria.localeCompare(b.categoria) || a.producto.localeCompare(b.producto))
-    .forEach(item => {
-      sheet.appendRow([item.categoria, item.producto, item.total, item.unidad]);
-      row++;
-    });
-  
-  sheet.autoResizeColumns(1, 6);
-}
- 
-function crearHojaFaltantes(sheet, escuelasFaltantes) {
-  sheet.appendRow(['ESCUELAS QUE NO ENVIARON REPORTE HOY']);
-  sheet.getRange(1, 1).setFontSize(14).setFontWeight('bold').setFontColor('#dc2626');
-  
-  sheet.appendRow(['']);
-  sheet.appendRow(['Zona', 'Centro Escolar']);
-  sheet.getRange(3, 1, 1, 2).setFontWeight('bold').setBackground('#dc2626').setFontColor('white');
-  
-  let row = 4;
-  Object.entries(escuelasFaltantes).forEach(([zona, escuelas]) => {
-    escuelas.forEach(escuela => {
-      sheet.appendRow([zona, escuela]);
-      row++;
-    });
-  });
-  
-  const totalFaltantes = Object.values(escuelasFaltantes).flat().length;
-  sheet.appendRow(['']);
-  sheet.appendRow(['TOTAL FALTANTES:', totalFaltantes]);
-  sheet.getRange(row + 1, 1, 1, 2).setFontWeight('bold').setBackground('#fef2f2');
-  
-  sheet.autoResizeColumns(1, 2);
-}
- 
-function crearResumenGeneral(sheet, reportes, fecha, escuelasFaltantes, totalEscuelas) {
-  const supervisoresUnicos = [...new Set(reportes.map(r => r[4]))];
-  const centrosUnicos = [...new Set(reportes.map(r => r[3]))];
-  const zonasConteo = {};
-  const emergencias = reportes.filter(r => r[14] === 'SÍ');
-  const totalFaltantes = Object.values(escuelasFaltantes).flat().length;
-  
-  reportes.forEach(r => {
-    zonasConteo[r[2]] = (zonasConteo[r[2]] || 0) + 1;
-  });
-  
-  sheet.getRange('A1:D1').merge().setValue(`📊 CONSOLIDADO DIARIO - ${fecha}`).setFontSize(16).setFontWeight('bold').setBackground('#059669').setFontColor('white');
-  
-  let row = 3;
-  sheet.getRange(row, 1).setValue('RESUMEN GENERAL').setFontWeight('bold').setFontSize(14);
-  row += 2;
-  
-  const resumen = [
-    ['Total de Reportes:', reportes.length],
-    ['Supervisores Activos:', supervisoresUnicos.length],
-    ['Centros que Reportaron:', centrosUnicos.length],
-    ['Total de Escuelas:', totalEscuelas],
-    ['Escuelas SIN Reporte:', totalFaltantes],
-    ['Emergencias:', emergencias.length]
-  ];
-  
-  resumen.forEach(([label, value]) => {
-    sheet.getRange(row, 1).setValue(label).setFontWeight('bold');
-    sheet.getRange(row, 2).setValue(value);
-    
-    if (label === 'Escuelas SIN Reporte:' && value > 0) {
-      sheet.getRange(row, 2).setBackground('#fef2f2').setFontColor('#dc2626').setFontWeight('bold');
-    } else {
-      sheet.getRange(row, 2).setBackground('#ecfdf5');
-    }
-    row++;
-  });
-  
-  row++;
-  const porcentaje = Math.round((centrosUnicos.length / totalEscuelas) * 100);
-  sheet.getRange(row, 1).setValue('CUMPLIMIENTO:').setFontWeight('bold');
-  sheet.getRange(row, 2).setValue(`${porcentaje}%`).setFontSize(16).setFontWeight('bold')
-    .setFontColor(porcentaje >= 80 ? '#059669' : porcentaje >= 50 ? '#f59e0b' : '#dc2626');
-  
-  row += 2;
-  sheet.getRange(row, 1).setValue('REPORTES POR ZONA').setFontWeight('bold').setFontSize(14);
-  row += 2;
-  
-  Object.entries(zonasConteo).forEach(([zona, count]) => {
-    sheet.getRange(row, 1).setValue(zona);
-    sheet.getRange(row, 2).setValue(count);
-    row++;
-  });
-  
-  row += 2;
-  sheet.getRange(row, 1).setValue('⚠️ ESCUELAS SIN REPORTE POR ZONA').setFontWeight('bold').setFontSize(14).setFontColor('#dc2626');
-  row += 2;
-  
-  Object.entries(escuelasFaltantes).forEach(([zona, escuelas]) => {
-    sheet.getRange(row, 1).setValue(zona).setFontWeight('bold').setBackground('#fef2f2');
-    sheet.getRange(row, 2).setValue(escuelas.length + ' faltantes').setBackground('#fef2f2');
-    row++;
-    escuelas.forEach(escuela => {
-      sheet.getRange(row, 1).setValue('   • ' + escuela).setFontColor('#dc2626');
-      row++;
-    });
-    row++;
-  });
-  
-  sheet.autoResizeColumns(1, 4);
-}
- 
-function crearDetallePorCentro(sheet, reportes) {
-  sheet.appendRow(['Centro', 'Zona', 'Supervisor', 'Hora Inicio', 'Hora Fin', 'Duración', 'Items Inv.', 'Fotos', 'Comentarios']);
-  sheet.getRange(1, 1, 1, 9).setFontWeight('bold').setBackground('#0891b2').setFontColor('white');
-  
-  reportes.forEach(r => {
-    sheet.appendRow([
-      r[3],
-      r[2],
-      r[4],
-      r[5],
-      r[6],
-      r[7],
-      r[10],
-      r[11],
-      r[13]
-    ]);
-  });
-  
-  sheet.autoResizeColumns(1, 9);
-}
- 
-function crearControlTiempos(sheet, reportes) {
-  sheet.appendRow(['Supervisor', 'Centro', 'Hora Inicio', 'Hora Fin', 'Duración (min)', 'Estado']);
-  sheet.getRange(1, 1, 1, 6).setFontWeight('bold').setBackground('#6366f1').setFontColor('white');
-  
-  reportes.forEach(r => {
-    const duracion = r[7] || 0;
-    let estado = '✅ Normal';
-    if (duracion < 30) estado = '⚠️ Muy corto';
-    if (duracion > 180) estado = '⏰ Extendido';
-    
-    sheet.appendRow([r[4], r[3], r[5], r[6], duracion, estado]);
-  });
-  
-  sheet.autoResizeColumns(1, 6);
-}
- 
-// ==================== INFORME WORD ====================
- 
-function generarInformeWord(fechaStr, fechaDisplay, reportes, carpetas, escuelasFaltantes) {
-  const doc = DocumentApp.create(`Informe_Supervisores_${fechaStr}`);
-  const body = doc.getBody();
-  
-  const file = DriveApp.getFileById(doc.getId());
-  file.moveTo(carpetas.informes);
-  
-  const titulo = body.appendParagraph(`INFORME DE SUPERVISIÓN`);
-  titulo.setHeading(DocumentApp.ParagraphHeading.HEADING1);
-  titulo.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  
-  const subtitulo = body.appendParagraph(fechaDisplay);
-  subtitulo.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  subtitulo.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  
-  body.appendParagraph('');
-  
-  const resumenTitulo = body.appendParagraph('RESUMEN EJECUTIVO');
-  resumenTitulo.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  
-  const supervisoresUnicos = [...new Set(reportes.map(r => r[4]))];
-  const centrosUnicos = [...new Set(reportes.map(r => r[3]))];
-  const totalEscuelas = obtenerTodasLasEscuelas().length;
-  const totalFaltantes = Object.values(escuelasFaltantes).flat().length;
-  const porcentaje = Math.round((centrosUnicos.length / totalEscuelas) * 100);
-  
-  body.appendParagraph(`• Total de reportes: ${reportes.length}`);
-  body.appendParagraph(`• Supervisores activos: ${supervisoresUnicos.length}`);
-  body.appendParagraph(`• Centros que reportaron: ${centrosUnicos.length} de ${totalEscuelas}`);
-  body.appendParagraph(`• Porcentaje de cumplimiento: ${porcentaje}%`);
-  body.appendParagraph(`• Escuelas sin reporte: ${totalFaltantes}`);
-  body.appendParagraph('');
-  
-  if (totalFaltantes > 0) {
-    const faltantesTitulo = body.appendParagraph('⚠️ ESCUELAS QUE NO ENVIARON REPORTE');
-    faltantesTitulo.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-    faltantesTitulo.setForegroundColor('#dc2626');
-    
-    Object.entries(escuelasFaltantes).forEach(([zona, escuelas]) => {
-      const zonaTitulo = body.appendParagraph(`${zona} (${escuelas.length} faltantes)`);
-      zonaTitulo.setBold(true);
-      
-      escuelas.forEach(escuela => {
-        const item = body.appendParagraph(`   • ${escuela}`);
-        item.setForegroundColor('#dc2626');
-      });
-      body.appendParagraph('');
-    });
-    
-    body.appendPageBreak();
-  }
-  
-  // 🆕 SECCIÓN DE COMENTARIOS POR CENTRO
-  const comentariosTitulo = body.appendParagraph('💬 COMENTARIOS Y OBSERVACIONES');
-  comentariosTitulo.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  
-  const reportesConComentarios = reportes.filter(r => r[13] && r[13].trim());
-  
-  if (reportesConComentarios.length > 0) {
-    reportesConComentarios.forEach(r => {
-      const centroP = body.appendParagraph(`${r[3]} (${r[2]})`);
-      centroP.setBold(true);
-      body.appendParagraph(`Supervisor: ${r[4]}`);
-      body.appendParagraph(`Comentario: ${r[13]}`);
-      body.appendParagraph('');
-    });
-  } else {
-    body.appendParagraph('No hay comentarios registrados para el día de hoy.');
-  }
-  
-  body.appendPageBreak();
-  
-  const reportesPorCentro = {};
-  reportes.forEach(r => {
-    const centro = r[3];
-    if (!reportesPorCentro[centro]) {
-      reportesPorCentro[centro] = [];
-    }
-    reportesPorCentro[centro].push(r);
-  });
-  
-  const centrosTitulo = body.appendParagraph('CENTROS QUE REPORTARON');
-  centrosTitulo.setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  body.appendParagraph('');
-  
-  Object.entries(reportesPorCentro).forEach(([centro, reps]) => {
-    const centroTitulo = body.appendParagraph(centro);
-    centroTitulo.setHeading(DocumentApp.ParagraphHeading.HEADING3);
-    
-    reps.forEach(r => {
-      body.appendParagraph(`Supervisor: ${r[4]}`);
-      body.appendParagraph(`Hora: ${r[5]} - ${r[6]} (${r[7]} minutos)`);
-      body.appendParagraph(`Zona: ${r[2]}`);
-      body.appendParagraph(`Items de inventario: ${r[10]}`);
-      body.appendParagraph(`Fotos capturadas: ${r[11]}`);
-      
-      if (r[13]) {
-        body.appendParagraph(`Comentarios: ${r[13]}`);
-      }
-      
-      if (r[14] === 'SÍ') {
-        const emergencia = body.appendParagraph(`⚠️ EMERGENCIA: ${r[15]} - Traslado a: ${r[16]}`);
-        emergencia.setForegroundColor('#dc2626');
-      }
-      
-      body.appendParagraph('');
-    });
-    
-    agregarFotosCentro(body, centro, fechaStr, carpetas);
-    
-    body.appendPageBreak();
-  });
-  
-  const footer = body.appendParagraph(`Informe generado automáticamente el ${Utilities.formatDate(new Date(), CONFIG.ZONA_HORARIA, 'dd/MM/yyyy HH:mm')}`);
-  footer.setFontSize(10);
-  footer.setForegroundColor('#64748b');
-  footer.setAlignment(DocumentApp.HorizontalAlignment.CENTER);
-  
-  doc.saveAndClose();
-  
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-  
-  return doc.getUrl();
-}
- 
-function agregarFotosCentro(body, centro, fechaStr, carpetas) {
-  try {
-    const carpetasFecha = carpetas.fotos.getFoldersByName(fechaStr);
-    if (!carpetasFecha.hasNext()) return;
-    
-    const carpetaFecha = carpetasFecha.next();
-    
-    const nombreCentro = centro.substring(0, 50).replace(/[^a-zA-Z0-9\s]/g, '');
-    const carpetasCentro = carpetaFecha.getFoldersByName(nombreCentro);
-    if (!carpetasCentro.hasNext()) return;
-    
-    const carpetaCentro = carpetasCentro.next();
-    
-    const fotosPorTiempo = {
-      'Desayuno': [],
-      'Almuerzo': [],
-      'Cena': [],
-      'Otros': []
-    };
-    
-    const archivos = carpetaCentro.getFiles();
-    while (archivos.hasNext()) {
-      const archivo = archivos.next();
-      if (archivo.getMimeType().startsWith('image/')) {
-        const nombre = archivo.getName();
-        if (nombre.includes('Desayuno')) {
-          fotosPorTiempo['Desayuno'].push(archivo);
-        } else if (nombre.includes('Almuerzo')) {
-          fotosPorTiempo['Almuerzo'].push(archivo);
-        } else if (nombre.includes('Cena')) {
-          fotosPorTiempo['Cena'].push(archivo);
-        } else {
-          fotosPorTiempo['Otros'].push(archivo);
+        function cargarEstado() {
+            try {
+                const guardado = localStorage.getItem(STORAGE_KEY);
+                if (!guardado) return null;
+                
+                const datos = JSON.parse(guardado);
+                
+                // Verificar si es del mismo día
+                const fechaGuardado = new Date(datos.guardadoEn);
+                const hoy = new Date();
+                if (fechaGuardado.toDateString() !== hoy.toDateString()) {
+                    limpiarEstado();
+                    return null;
+                }
+                
+                return datos;
+            } catch (e) {
+                console.log('Error cargando estado:', e);
+                return null;
+            }
         }
-      }
-    }
-    
-    Object.entries(fotosPorTiempo).forEach(([tiempo, fotos]) => {
-      if (fotos.length === 0) return;
-      
-      const tiempoTitulo = body.appendParagraph(`📸 ${tiempo}`);
-      tiempoTitulo.setHeading(DocumentApp.ParagraphHeading.HEADING4);
-      
-      fotos.forEach(foto => {
-        try {
-          const blob = foto.getBlob();
-          const imagen = body.appendImage(blob);
-          
-          const width = imagen.getWidth();
-          const height = imagen.getHeight();
-          const maxWidth = 400;
-          
-          if (width > maxWidth) {
-            const ratio = maxWidth / width;
-            imagen.setWidth(maxWidth);
-            imagen.setHeight(height * ratio);
-          }
-          
-          body.appendParagraph(`${foto.getName()}`).setFontSize(9).setForegroundColor('#64748b');
-          body.appendParagraph('');
-        } catch (e) {
-          console.log('Error agregando foto:', e);
+        
+        function restaurarEstado(datos) {
+            state.paso = datos.paso || 0;
+            state.zona = datos.zona || '';
+            state.centro = datos.centro || '';
+            state.supervisor = datos.supervisor || '';
+            state.horaInicio = datos.horaInicio ? new Date(datos.horaInicio) : null;
+            state.ubicacion = datos.ubicacion || null;
+            state.inventario = datos.inventario || {};
+            state.fotos = datos.fotos || [];
+            state.comentarios = datos.comentarios || '';
+            state.esEmergencia = datos.esEmergencia || false;
+            state.motivoEmergencia = datos.motivoEmergencia || '';
+            state.centroEmergencia = datos.centroEmergencia || '';
+            state.categoriaActiva = datos.categoriaActiva || 'bodega_seca';
+            state.modalRecuperar = false;
         }
-      });
-    });
-    
-  } catch (e) {
-    console.log('Error en agregarFotosCentro:', e);
-  }
-}
- 
-// ==================== EMAIL CONSOLIDADO ====================
- 
-function enviarEmailConsolidado(fecha, excelUrl, wordUrl, reportes, escuelasFaltantes, totalEscuelas) {
-  const supervisoresUnicos = [...new Set(reportes.map(r => r[4]))];
-  const centrosUnicos = [...new Set(reportes.map(r => r[3]))];
-  const emergencias = reportes.filter(r => r[14] === 'SÍ');
-  const totalFaltantes = Object.values(escuelasFaltantes).flat().length;
-  const porcentaje = Math.round((centrosUnicos.length / totalEscuelas) * 100);
-  
-  // Contar comentarios
-  const reportesConComentarios = reportes.filter(r => r[13] && r[13].trim());
-  
-  let faltantesHTML = '';
-  if (totalFaltantes > 0) {
-    faltantesHTML = `
-      <div style="background: #fef2f2; border: 2px solid #dc2626; padding: 16px; border-radius: 10px; margin-top: 16px;">
-        <h4 style="color: #dc2626; margin: 0 0 12px;">⚠️ ESCUELAS SIN REPORTE (${totalFaltantes})</h4>
-    `;
-    
-    Object.entries(escuelasFaltantes).forEach(([zona, escuelas]) => {
-      faltantesHTML += `<p style="margin: 8px 0 4px; font-weight: bold; color: #991b1b;">${zona}:</p>`;
-      faltantesHTML += `<ul style="margin: 0; padding-left: 20px;">`;
-      escuelas.forEach(escuela => {
-        faltantesHTML += `<li style="color: #dc2626; font-size: 13px;">${escuela}</li>`;
-      });
-      faltantesHTML += `</ul>`;
-    });
-    
-    faltantesHTML += `</div>`;
-  }
-  
-  const htmlBody = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; }
-        .header { background: linear-gradient(135deg, #059669 0%, #0891b2 100%); color: white; padding: 24px; border-radius: 12px 12px 0 0; text-align: center; }
-        .content { background: #f8fafc; padding: 24px; border: 1px solid #e2e8f0; }
-        .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 16px 0; }
-        .stat-box { background: white; padding: 16px; border-radius: 10px; text-align: center; border: 1px solid #e2e8f0; }
-        .stat-number { font-size: 28px; font-weight: bold; color: #059669; }
-        .stat-label { font-size: 12px; color: #64748b; text-transform: uppercase; }
-        .btn { display: inline-block; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; margin: 8px 4px; }
-        .btn-primary { background: #059669; color: white; }
-        .btn-secondary { background: #0891b2; color: white; }
-        .footer { background: #f1f5f9; padding: 16px; text-align: center; font-size: 12px; color: #64748b; border-radius: 0 0 12px 12px; }
-        .cumplimiento { font-size: 32px; font-weight: bold; }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <h1 style="margin: 0; font-size: 24px;">📊 Consolidado Diario</h1>
-        <p style="margin: 8px 0 0; font-size: 18px;">${fecha}</p>
-      </div>
-      
-      <div class="content">
-        <div style="text-align: center; margin-bottom: 20px;">
-          <p style="margin: 0; color: #64748b;">CUMPLIMIENTO</p>
-          <p class="cumplimiento" style="margin: 0; color: ${porcentaje >= 80 ? '#059669' : porcentaje >= 50 ? '#f59e0b' : '#dc2626'};">${porcentaje}%</p>
-          <p style="margin: 0; color: #64748b;">${centrosUnicos.length} de ${totalEscuelas} escuelas</p>
-        </div>
         
-        <div class="stat-grid">
-          <div class="stat-box">
-            <div class="stat-number">${reportes.length}</div>
-            <div class="stat-label">Reportes</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-number">${supervisoresUnicos.length}</div>
-            <div class="stat-label">Supervisores</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-number" style="color: ${totalFaltantes > 0 ? '#dc2626' : '#059669'};">${totalFaltantes}</div>
-            <div class="stat-label">Sin Reporte</div>
-          </div>
-          <div class="stat-box">
-            <div class="stat-number" style="color: #f59e0b;">${reportesConComentarios.length}</div>
-            <div class="stat-label">Con Comentarios</div>
-          </div>
-        </div>
+        function limpiarEstado() {
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+            } catch (e) {
+                console.log('Error limpiando estado:', e);
+            }
+        }
         
-        ${faltantesHTML}
+        function verificarEstadoGuardado() {
+            const datos = cargarEstado();
+            if (datos && datos.paso > 0) {
+                state.modalRecuperar = true;
+                state.datosRecuperar = datos;
+                render();
+                return true;
+            }
+            return false;
+        }
         
-        <h3 style="margin-top: 24px;">📋 Documentos Generados</h3>
-        <p>Se han generado los siguientes documentos para su revisión:</p>
+        function continuarDondeQuede() {
+            if (state.datosRecuperar) {
+                restaurarEstado(state.datosRecuperar);
+                state.datosRecuperar = null;
+            }
+            render();
+        }
         
-        <div style="text-align: center; margin: 20px 0;">
-          <a href="${excelUrl}" class="btn btn-primary">📊 Ver Consolidado Excel</a>
-          <a href="${wordUrl}" class="btn btn-secondary">📄 Ver Informe Word</a>
-        </div>
+        function empezarDeNuevo() {
+            limpiarEstado();
+            state.modalRecuperar = false;
+            state.datosRecuperar = null;
+            render();
+        }
         
-        <p style="font-size: 13px; color: #64748b;">
-          <strong>El Excel incluye:</strong><br>
-          • Inventario detallado con categorías y unidades<br>
-          • Consolidado por centro<br>
-          • 🆕 Hoja de comentarios por centro<br>
-          • Escuelas faltantes<br>
-          <br>
-          <strong>Nota:</strong> Las fotos se limpian automáticamente después de ${CONFIG.DIAS_LIMPIEZA_FOTOS} días.
-        </p>
+        // Auto-guardar cada 30 segundos
+        setInterval(() => {
+            if (state.paso > 0 && !state.enviado) {
+                guardarEstado();
+            }
+        }, 30000);
         
-        ${emergencias.length > 0 ? `
-          <div style="background: #fef2f2; border: 2px solid #dc2626; padding: 16px; border-radius: 10px; margin-top: 16px;">
-            <h4 style="color: #dc2626; margin: 0 0 8px;">⚠️ Emergencias del Día</h4>
-            ${emergencias.map(e => `<p style="margin: 4px 0;"><strong>${e[4]}</strong> - ${e[3]}: ${e[15]}</p>`).join('')}
-          </div>
-        ` : ''}
-      </div>
-      
-      <div class="footer">
-        <strong>Sistema de Control de Supervisores - DGCP v4.0</strong><br>
-        Consolidado generado automáticamente • ${Utilities.formatDate(new Date(), CONFIG.ZONA_HORARIA, 'dd/MM/yyyy HH:mm')}
-      </div>
-    </body>
-    </html>
-  `;
-  
-  const asunto = totalFaltantes > 0 
-    ? `⚠️ CONSOLIDADO ${fecha} - ${totalFaltantes} escuelas SIN reporte (${porcentaje}% cumplimiento)`
-    : `✅ CONSOLIDADO ${fecha} - 100% cumplimiento (${reportes.length} reportes)`;
-  
-  GmailApp.sendEmail(CONFIG.EMAIL_DESTINO, asunto, '', {
-    htmlBody: htmlBody,
-    name: 'Sistema DGCP Supervisores'
-  });
-}
+        // Guardar cuando el usuario sale de la app
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && state.paso > 0 && !state.enviado) {
+                guardarEstado();
+            }
+        });
+        
+        // Guardar antes de cerrar
+        window.addEventListener('beforeunload', () => {
+            if (state.paso > 0 && !state.enviado) {
+                guardarEstado();
+            }
+        });
  
-// ==================== UTILIDADES ====================
+        // ==================== UTILITIES ====================
+        function formatTime(date) {
+            return date.toLocaleTimeString('es-SV', { hour: '2-digit', minute: '2-digit' });
+        }
  
-function obtenerSpreadsheet() {
-  const carpetas = obtenerEstructuraCarpetas();
-  const files = carpetas.principal.getFilesByName(CONFIG.NOMBRE_SPREADSHEET);
-  if (files.hasNext()) {
-    return SpreadsheetApp.open(files.next());
-  }
-  return null;
-}
+        function formatDate(date) {
+            return date.toLocaleDateString('es-SV', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
  
-function contarItemsInventario(inventario) {
-  const items = Object.entries(inventario || {}).filter(([k, v]) => v !== '' && v > 0);
-  return { total: items.length, items };
-}
+        function formatDateTime(date) {
+            return `${formatDate(date)} ${formatTime(date)}`;
+        }
  
-function calcularDuracion(inicio, fin) {
-  const ms = new Date(fin) - new Date(inicio);
-  return Math.round(ms / 60000);
-}
+        // ==================== GEOLOCATION ====================
+        function obtenerUbicacion() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error('Geolocalización no soportada'));
+                    return;
+                }
  
-function obtenerTiemposComida(fotos) {
-  if (!fotos || fotos.length === 0) return '';
-  return [...new Set(fotos.map(f => f.tiempoComida))].join(', ');
-}
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        resolve({
+                            lat: pos.coords.latitude,
+                            lng: pos.coords.longitude,
+                            accuracy: pos.coords.accuracy
+                        });
+                    },
+                    (err) => {
+                        reject(new Error('No se pudo obtener ubicación. Active el GPS.'));
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+                );
+            });
+        }
  
-function formatearCategoria(categoria) {
-  const nombres = {
-    'bodega_seca': 'Bodega Seca',
-    'vegetales': 'Vegetales',
-    'carnicos': 'Cárnicos',
-    'gas': 'Gas',
-    'lacteos': 'Lácteos'
-  };
-  return nombres[categoria] || categoria;
-}
+        // ==================== PHOTO HANDLING ====================
+        function procesarFoto(file, tiempoComida) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const maxWidth = 1200;
+                        const scale = Math.min(1, maxWidth / img.width);
+                        canvas.width = img.width * scale;
+                        canvas.height = img.height * scale;
+                        
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        
+                        const padding = 16;
+                        const lineHeight = Math.max(20, canvas.height * 0.028);
+                        const boxHeight = lineHeight * 5 + padding * 2;
+                        
+                        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+                        ctx.fillRect(0, canvas.height - boxHeight, canvas.width, boxHeight);
+                        
+                        ctx.fillStyle = '#FFFFFF';
+                        ctx.font = `bold ${lineHeight}px Plus Jakarta Sans, sans-serif`;
+                        
+                        const fecha = new Date();
+                        let y = canvas.height - boxHeight + padding + lineHeight;
+                        
+                        ctx.fillText(`📅 ${formatDate(fecha)}   🕐 ${formatTime(fecha)}`, padding, y);
+                        y += lineHeight + 6;
+                        ctx.fillText(`🍽️ ${tiempoComida.toUpperCase()}`, padding, y);
+                        y += lineHeight + 6;
+                        ctx.font = `${lineHeight * 0.9}px Plus Jakarta Sans, sans-serif`;
+                        ctx.fillText(`📍 ${state.centro}`, padding, y);
+                        y += lineHeight + 4;
+                        ctx.font = `${lineHeight * 0.75}px Plus Jakarta Sans, sans-serif`;
+                        ctx.fillStyle = '#94a3b8';
+                        if (state.ubicacion) {
+                            ctx.fillText(`LAT: ${state.ubicacion.lat.toFixed(6)} | LNG: ${state.ubicacion.lng.toFixed(6)}`, padding, y);
+                        }
+                        
+                        resolve({
+                            imagen: canvas.toDataURL('image/jpeg', 0.85),
+                            tiempoComida,
+                            fecha: formatDate(fecha),
+                            hora: formatTime(fecha),
+                            ubicacion: state.ubicacion
+                        });
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
  
-// 🆕 Generar tabla de inventario mejorada con categorías
-function generarTablaInventario(inventario) {
-  let html = '<table style="width: 100%;"><tr><th>Categoría</th><th>Producto</th><th style="text-align: center;">Cantidad</th><th>Unidad</th></tr>';
-  
-  Object.entries(inventario || {}).forEach(([key, value]) => {
-    if (value !== '' && value > 0) {
-      const partes = key.split('_');
-      const categoriaKey = partes[0];
-      const nombre = partes.slice(1).join(' ');
-      const categoriaNombre = obtenerNombreCategoria(categoriaKey);
-      const unidad = obtenerUnidadMedida(categoriaKey, nombre);
-      
-      html += `<tr><td>${categoriaNombre}</td><td>${nombre}</td><td style="text-align: center;">${value}</td><td>${unidad}</td></tr>`;
-    }
-  });
-  
-  html += '</table>';
-  return html;
-}
+        // ==================== VALIDATION ====================
+        function validarFormulario() {
+            if (!state.zona || !state.centro || !state.supervisor) {
+                return 'Complete los datos de identificación';
+            }
+            if (!state.horaInicio || !state.ubicacion) {
+                return 'No se registró hora o ubicación de inicio';
+            }
+            
+            const itemsLlenados = Object.values(state.inventario).filter(v => v !== '' && v > 0).length;
+            if (itemsLlenados < 3 && !state.esEmergencia) {
+                return 'Complete al menos 3 items del inventario';
+            }
+            
+            if (state.fotos.length === 0 && !state.esEmergencia) {
+                return 'Agregue al menos una foto de la comida';
+            }
+            
+            if (state.esEmergencia && (!state.motivoEmergencia || !state.centroEmergencia)) {
+                return 'Complete los datos de emergencia';
+            }
+            
+            return null;
+        }
  
-function generarSeccionFotos(fotosUrls) {
-  if (!fotosUrls || fotosUrls.length === 0) return '';
-  
-  let html = '<h3 style="margin-top: 24px;">📸 Fotos Capturadas (en Drive)</h3>';
-  html += '<p style="font-size: 12px; color: #64748b;">Las fotos se almacenan en Google Drive y se limpian automáticamente después de ' + CONFIG.DIAS_LIMPIEZA_FOTOS + ' días.</p>';
-  html += '<div style="display: grid; gap: 8px;">';
-  
-  fotosUrls.forEach((foto, i) => {
-    html += `<a href="${foto.url}" class="btn" style="text-align: center;">${foto.tiempoComida || 'Foto'} ${i + 1} - Ver en Drive</a>`;
-  });
-  
-  html += '</div>';
-  return html;
-}
+        // ==================== SEND REPORT ====================
+        async function enviarReporte() {
+            const error = validarFormulario();
+            if (error) {
+                state.error = error;
+                render();
+                return;
+            }
  
-function generarAlertaEmergencia(data) {
-  return `
-    <div class="emergency">
-      <h3>⚠️ MOVIMIENTO DE EMERGENCIA</h3>
-      <p><strong>Motivo:</strong> ${data.motivoEmergencia}</p>
-      <p><strong>Centro de traslado:</strong> ${data.centroEmergencia}</p>
-    </div>
-  `;
-}
+            const hoy = new Date().toDateString();
+            const reportesEnviados = JSON.parse(localStorage.getItem('reportesEnviados') || '{}');
+            
+            if (reportesEnviados[state.centro] === hoy) {
+                state.error = '⚠️ Ya se envió un reporte de esta escuela hoy. No se permite enviar dos veces el mismo día.';
+                state.loading = false;
+                render();
+                return;
+            }
  
-function actualizarResumenDiario(ss, fecha, reportes, totalFaltantes) {
-  const sheet = ss.getSheetByName('Resumen Diario');
-  if (!sheet) return;
-  
-  const supervisoresUnicos = [...new Set(reportes.map(r => r[4]))];
-  const centrosUnicos = [...new Set(reportes.map(r => r[3]))];
-  const totalFotos = reportes.reduce((sum, r) => sum + (r[11] || 0), 0);
-  const emergencias = reportes.filter(r => r[14] === 'SÍ').length;
-  
-  sheet.appendRow([
-    fecha,
-    reportes.length,
-    supervisoresUnicos.length,
-    centrosUnicos.length,
-    totalFotos,
-    emergencias,
-    totalFaltantes
-  ]);
-}
+            state.loading = true;
+            state.error = '';
+            render();
  
-// ==================== TRIGGERS ====================
+            const horaFin = new Date();
+            const reporte = {
+                timestamp: horaFin.toISOString(),
+                zona: state.zona,
+                centro: state.centro,
+                supervisor: state.supervisor,
+                horaInicio: state.horaInicio.toISOString(),
+                horaFin: horaFin.toISOString(),
+                ubicacion: state.ubicacion,
+                inventario: state.inventario,
+                fotos: state.fotos.map(f => ({
+                    tiempoComida: f.tiempoComida,
+                    fecha: f.fecha,
+                    hora: f.hora
+                })),
+                fotosBase64: state.fotos.map(f => f.imagen),
+                comentarios: state.comentarios,
+                esEmergencia: state.esEmergencia,
+                motivoEmergencia: state.motivoEmergencia,
+                centroEmergencia: state.centroEmergencia
+            };
  
-/**
- * Configura los triggers para el consolidado diario y limpieza de fotos
- * EJECUTAR ESTA FUNCIÓN UNA SOLA VEZ
- */
-function configurarTriggers() {
-  // Eliminar triggers existentes
-  const triggers = ScriptApp.getProjectTriggers();
-  triggers.forEach(trigger => {
-    ScriptApp.deleteTrigger(trigger);
-  });
-  
-  // Trigger para consolidado diario a las 7 PM
-  ScriptApp.newTrigger('generarConsolidadoDiario')
-    .timeBased()
-    .atHour(CONFIG.HORA_CONSOLIDADO)
-    .everyDays(1)
-    .inTimezone(CONFIG.ZONA_HORARIA)
-    .create();
-  
-  // 🆕 Trigger para limpieza de fotos (domingos 3 AM)
-  ScriptApp.newTrigger('limpiarFotosAntiguas')
-    .timeBased()
-    .onWeekDay(ScriptApp.WeekDay.SUNDAY)
-    .atHour(3)
-    .inTimezone(CONFIG.ZONA_HORARIA)
-    .create();
-  
-  console.log('✅ Triggers configurados:');
-  console.log('   - Consolidado diario: ' + CONFIG.HORA_CONSOLIDADO + ':00 ' + CONFIG.ZONA_HORARIA);
-  console.log('   - Limpieza de fotos: Domingos 3:00 AM');
-}
+            try {
+                localStorage.setItem('ultimoReporte', JSON.stringify({
+                    ...reporte,
+                    fotosBase64: undefined
+                }));
+            } catch (e) {
+                console.log('No se pudo guardar localmente');
+            }
  
-// ==================== FUNCIONES DE PRUEBA ====================
+            try {
+                // ⚠️ IMPORTANTE: Reemplazar esta URL con la nueva URL de tu Apps Script
+                await fetch('https://script.google.com/macros/s/AKfycby8l22wy5JDtSsPGhdpm0jfdcvIKlXxJkhcSzWvebQTfTimd6XtRzHSHAXDamaoS9Pg/exec', {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(reporte)
+                });
+                
+                reportesEnviados[state.centro] = hoy;
+                localStorage.setItem('reportesEnviados', JSON.stringify(reportesEnviados));
+                
+                // Limpiar el estado guardado después de enviar exitosamente
+                limpiarEstado();
+                
+                state.loading = false;
+                state.enviado = true;
+                render();
+                
+            } catch (err) {
+                console.log('Error de red, pero el reporte puede haberse enviado');
+                
+                // Limpiar el estado guardado
+                limpiarEstado();
+                
+                state.loading = false;
+                state.enviado = true;
+                render();
+            }
+        }
  
-function testEnviarReporte() {
-  const testData = {
-    timestamp: new Date().toISOString(),
-    zona: 'CENTRAL',
-    centro: 'CENTRO ESCOLAR DE PRUEBA',
-    supervisor: 'SUPERVISOR TEST',
-    horaInicio: new Date(Date.now() - 3600000).toISOString(),
-    horaFin: new Date().toISOString(),
-    ubicacion: { lat: 13.6929, lng: -89.2182 },
-    inventario: {
-      'bodega_seca_Arroz precocido': 5,
-      'bodega_seca_Frijol grano': 3,
-      'carnicos_Pollo': 10,
-      'carnicos_Pollo molido': 5,
-      'gas_Tambos LLENOS': 2,
-      'gas_Tambos EN USO': 1,
-      'gas_Tambos VACÍOS': 3
-    },
-    fotos: [
-      { tiempoComida: 'Desayuno', fecha: '08/03/2026', hora: '07:30' },
-      { tiempoComida: 'Almuerzo', fecha: '08/03/2026', hora: '12:00' }
-    ],
-    fotosBase64: [],
-    comentarios: 'Prueba del sistema v4.0 - estufa necesita mantenimiento',
-    esEmergencia: false,
-    motivoEmergencia: '',
-    centroEmergencia: ''
-  };
-  
-  guardarEnSheets(testData);
-  enviarEmailReporte(testData, []);
-  
-  console.log('✅ Test de reporte completado');
-}
+        // ==================== RENDER ====================
+        function render() {
+            const app = document.getElementById('app');
+            
+            if (state.loading) {
+                app.innerHTML = `
+                    <div class="loading-screen">
+                        <div class="spinner"></div>
+                        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 8px;">Enviando reporte...</h2>
+                        <p style="opacity: 0.7;">Por favor espere</p>
+                    </div>
+                `;
+                return;
+            }
  
-function testConsolidado() {
-  generarConsolidadoDiario();
-  console.log('✅ Test de consolidado completado');
-}
+            if (state.enviado) {
+                app.innerHTML = `
+                    <div class="success-screen">
+                        <div class="success-card">
+                            <div class="success-icon">✓</div>
+                            <h1 class="success-title">¡Enviado!</h1>
+                            <p class="success-subtitle">Reporte guardado correctamente</p>
+                            <div class="success-details">
+                                <div class="success-detail">
+                                    <span style="color: var(--text-light)">Centro:</span>
+                                    <span style="font-weight: 600; font-size: 0.85rem; text-align: right;">${state.centro}</span>
+                                </div>
+                                <div class="success-detail">
+                                    <span style="color: var(--text-light)">Supervisor:</span>
+                                    <span style="font-weight: 600">${state.supervisor}</span>
+                                </div>
+                                <div class="success-detail">
+                                    <span style="color: var(--text-light)">Enviado a:</span>
+                                    <span style="font-weight: 600; color: var(--primary); font-size: 0.8rem;">proyectoescuelasdgcp@gmail.com</span>
+                                </div>
+                                <div class="success-detail">
+                                    <span style="color: var(--text-light)">Hora:</span>
+                                    <span style="font-weight: 600">${formatTime(new Date())}</span>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-full" onclick="location.reload()">
+                                📋 Nuevo Reporte
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
  
-function testLimpiezaFotos() {
-  limpiarFotosAntiguas();
-  console.log('✅ Test de limpieza de fotos completado');
-}
+            let modalHTML = '';
+            if (state.modalTiempo) {
+                modalHTML = `
+                    <div class="modal-overlay" onclick="cerrarModal(event)">
+                        <div class="modal" onclick="event.stopPropagation()">
+                            <div class="modal-icon" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">📸</div>
+                            <h3 class="modal-title">¿Qué tiempo de comida?</h3>
+                            <div class="modal-buttons">
+                                <button class="btn btn-breakfast" onclick="seleccionarTiempo('Desayuno')">🌅 Desayuno</button>
+                                <button class="btn btn-lunch" onclick="seleccionarTiempo('Almuerzo')">☀️ Almuerzo</button>
+                                <button class="btn btn-dinner" onclick="seleccionarTiempo('Cena')">🌙 Cena</button>
+                                <button class="btn btn-secondary" onclick="cancelarFoto()">Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Modal de recuperación de sesión
+            if (state.modalRecuperar) {
+                const datos = state.datosRecuperar;
+                modalHTML = `
+                    <div class="modal-overlay">
+                        <div class="modal" onclick="event.stopPropagation()">
+                            <div class="modal-icon" style="background: linear-gradient(135deg, #059669 0%, #0891b2 100%);">💾</div>
+                            <h3 class="modal-title">Reporte sin terminar</h3>
+                            <p style="text-align: center; color: var(--text-light); margin-bottom: 16px; font-size: 0.9rem;">
+                                Tienes un reporte en progreso:<br>
+                                <strong style="color: var(--text);">${datos.centro || 'Sin centro'}</strong><br>
+                                <span style="font-size: 0.8rem;">Supervisor: ${datos.supervisor || 'Sin supervisor'}</span>
+                            </p>
+                            <div class="modal-buttons">
+                                <button class="btn btn-primary" onclick="continuarDondeQuede()">
+                                    ✅ Continuar donde me quedé
+                                </button>
+                                <button class="btn btn-secondary" onclick="empezarDeNuevo()">
+                                    🔄 Empezar de nuevo
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
  
-function testVerificarDuplicado() {
-  const resultado = verificarReporteDuplicado('CENTRO ESCOLAR DE PRUEBA');
-  console.log('Resultado:', resultado);
-}
+            const pasos = [
+                renderPaso0(),
+                renderPaso1(),
+                renderPaso2(),
+                renderPaso3(),
+                renderPaso4()
+            ];
  
-function verEstadoSistema() {
-  const ss = obtenerSpreadsheet();
-  const totalReportes = ss ? ss.getSheetByName('Reportes').getLastRow() - 1 : 0;
-  const totalEscuelas = obtenerTodasLasEscuelas().length;
-  
-  console.log('=== ESTADO DEL SISTEMA DGCP v4.0 ===');
-  console.log('Total escuelas configuradas:', totalEscuelas);
-  console.log('Total reportes en base de datos:', totalReportes);
-  console.log('Días para limpieza de fotos:', CONFIG.DIAS_LIMPIEZA_FOTOS);
-  console.log('Email destino:', CONFIG.EMAIL_DESTINO);
-  console.log('Hora consolidado:', CONFIG.HORA_CONSOLIDADO + ':00');
-}
+            const showNav = state.paso > 0;
+            const showProgress = state.paso > 0;
  
+            app.innerHTML = `
+                <header class="header">
+                    <h1>${getTitulo()}</h1>
+                    <p>${getSubtitulo()}</p>
+                    ${state.horaInicio ? `
+                        <div class="header-info">
+                            <div class="header-badge">🕐 ${formatTime(state.horaInicio)}</div>
+                            <div class="header-badge">📍 GPS ✓</div>
+                        </div>
+                    ` : ''}
+                    ${showProgress ? `
+                        <div class="progress-bar">
+                            ${[1,2,3,4].map(p => `<div class="progress-step ${state.paso >= p ? 'active' : ''}"></div>`).join('')}
+                        </div>
+                    ` : ''}
+                </header>
+                
+                <main class="main">
+                    ${state.error ? `
+                        <div class="alert alert-error">
+                            <span class="alert-icon">⚠️</span>
+                            <span>${state.error}</span>
+                        </div>
+                    ` : ''}
+                    ${pasos[state.paso]}
+                </main>
+                
+                ${showNav ? `
+                    <nav class="bottom-nav">
+                        <button class="btn btn-secondary" onclick="anteriorPaso()">
+                            ← Anterior
+                        </button>
+                        ${state.paso < 4 ? `
+                            <button class="btn btn-primary" onclick="siguientePaso()">
+                                Siguiente →
+                            </button>
+                        ` : `
+                            <button class="btn btn-primary" onclick="enviarReporte()">
+                                📤 ENVIAR
+                            </button>
+                        `}
+                    </nav>
+                ` : ''}
+                
+                ${modalHTML}
+            `;
+        }
+ 
+        function getTitulo() {
+            const titulos = ['Control de Supervisores', 'Inventario', 'Fotos de Comida', 'Observaciones', 'Resumen'];
+            return titulos[state.paso];
+        }
+ 
+        function getSubtitulo() {
+            const subtitulos = ['Sistema de Gestión DGCP v4.0', 'Registre las existencias', 'Capture el plato preparado', 'Comentarios y emergencias', 'Verifique antes de enviar'];
+            return subtitulos[state.paso];
+        }
+ 
+        // ==================== PASO 0: INICIO ====================
+        function renderPaso0() {
+            const zonas = Object.keys(ESCUELAS_DATA);
+            const centros = state.zona ? ESCUELAS_DATA[state.zona] : [];
+            
+            return `
+                <div style="text-align: center; margin-bottom: 24px;">
+                    <div class="intro-logo">🏫</div>
+                    <p class="intro-text">Seleccione sus datos para comenzar</p>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-icon" style="background: #fef3c7;">📍</div>
+                        <div>
+                            <div class="card-title">Seleccione Zona</div>
+                        </div>
+                    </div>
+                    <div class="btn-grid">
+                        ${zonas.map(z => `
+                            <button class="btn ${state.zona === z ? 'selected' : ''}" onclick="seleccionarZona('${z}')">
+                                ${z}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+                
+                ${state.zona ? `
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-icon" style="background: #dbeafe;">🏢</div>
+                            <div>
+                                <div class="card-title">Seleccione Centro</div>
+                                <div class="card-subtitle">${centros.length} centros disponibles</div>
+                            </div>
+                        </div>
+                        <div class="btn-list">
+                            ${centros.map(c => `
+                                <button class="btn ${state.centro === c ? 'selected' : ''}" onclick="seleccionarCentro('${c.replace(/'/g, "\\'")}')">
+                                    ${c}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                ${state.centro ? `
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="card-icon" style="background: #f3e8ff;">👤</div>
+                            <div>
+                                <div class="card-title">Seleccione Supervisor</div>
+                            </div>
+                        </div>
+                        <div class="btn-list">
+                            ${SUPERVISORES.map(s => `
+                                <button class="btn ${state.supervisor === s ? 'selected' : ''}" onclick="seleccionarSupervisor('${s}')">
+                                    ${s}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                ${state.zona && state.centro && state.supervisor ? `
+                    <button class="btn btn-primary btn-full" onclick="iniciarFormulario()" style="margin-top: 8px;">
+                        📍 INICIAR FORMULARIO
+                    </button>
+                ` : ''}
+            `;
+        }
+ 
+        // ==================== PASO 1: INVENTARIO ====================
+        function renderPaso1() {
+            const categorias = Object.entries(INVENTARIO);
+            const catActiva = INVENTARIO[state.categoriaActiva];
+            const itemsCount = Object.values(state.inventario).filter(v => v !== '' && v > 0).length;
+            
+            return `
+                <div class="tabs">
+                    ${categorias.map(([key, cat]) => `
+                        <button class="tab ${state.categoriaActiva === key ? 'active' : ''}" onclick="cambiarCategoria('${key}')">
+                            ${cat.emoji} ${cat.nombre}
+                        </button>
+                    `).join('')}
+                </div>
+                
+                <div class="card" style="padding: 0; overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); padding: 16px; color: white;">
+                        <div style="font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 1.5rem;">${catActiva.emoji}</span>
+                            ${catActiva.nombre}
+                        </div>
+                    </div>
+                    <div class="inventory-list">
+                        ${catActiva.items.map(item => `
+                            <div class="inventory-item">
+                                <div>
+                                    <div class="inventory-item-name">${item.nombre}</div>
+                                    <div class="inventory-item-unit">${item.unidad}</div>
+                                </div>
+                                <input 
+                                    type="number" 
+                                    inputmode="decimal"
+                                    min="0" 
+                                    step="0.5"
+                                    class="input input-number"
+                                    placeholder="0"
+                                    value="${state.inventario[`${state.categoriaActiva}_${item.nombre}`] || ''}"
+                                    onchange="actualizarInventario('${state.categoriaActiva}', '${item.nombre}', this.value)"
+                                >
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                
+                <div class="counter-badge">
+                    ✅ Items registrados: ${itemsCount}
+                </div>
+            `;
+        }
+ 
+        // ==================== PASO 2: FOTOS ====================
+        function renderPaso2() {
+            return `
+                <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display: none;" onchange="capturarFoto(this)">
+                
+                <div class="photo-capture" onclick="document.getElementById('cameraInput').click()">
+                    <div class="photo-capture-icon">📷</div>
+                    <div class="photo-capture-text">TOMAR FOTO</div>
+                    <div class="photo-capture-hint">📍 Marca de agua automática con fecha, hora y ubicación</div>
+                </div>
+                
+                ${state.fotos.length > 0 ? `
+                    <div style="margin-top: 20px;">
+                        <h4 style="font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                            <span style="color: var(--success);">✓</span>
+                            Fotos capturadas (${state.fotos.length})
+                        </h4>
+                        <div class="photo-grid">
+                            ${state.fotos.map((foto, i) => `
+                                <div class="photo-card">
+                                    <img src="${foto.imagen}" class="photo-preview" alt="Foto ${i+1}">
+                                    <div class="photo-info">
+                                        <div class="photo-time">${foto.tiempoComida}</div>
+                                        <div class="photo-meta">${foto.fecha} • ${foto.hora}</div>
+                                    </div>
+                                    <button class="photo-delete" onclick="eliminarFoto(${i})">×</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                ` : `
+                    <div class="card" style="background: #fffbeb; border-color: #fde68a; margin-top: 16px;">
+                        <p style="color: #b45309; text-align: center; font-weight: 500;">
+                            ⚠️ Debe agregar al menos una foto para enviar el reporte
+                        </p>
+                    </div>
+                `}
+            `;
+        }
+ 
+        // ==================== PASO 3: OBSERVACIONES ====================
+        function renderPaso3() {
+            return `
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-icon" style="background: #f1f5f9;">💬</div>
+                        <div>
+                            <div class="card-title">Comentarios Importantes</div>
+                            <div class="card-subtitle">Mantenimientos, utensilios dañados o faltantes</div>
+                        </div>
+                    </div>
+                    <textarea 
+                        class="input" 
+                        placeholder="Escriba sus observaciones aquí..."
+                        onchange="state.comentarios = this.value; guardarEstado();"
+                    >${state.comentarios}</textarea>
+                </div>
+                
+                <div class="card ${state.esEmergencia ? 'emergency-card' : ''}">
+                    <div class="toggle-container">
+                        <div class="card-header" style="margin-bottom: 0;">
+                            <div class="card-icon" style="background: ${state.esEmergencia ? '#fee2e2' : '#ffedd5'};">⚠️</div>
+                            <div>
+                                <div class="card-title">Movimiento de Emergencia</div>
+                            </div>
+                        </div>
+                        <div class="toggle ${state.esEmergencia ? 'active' : ''}" onclick="toggleEmergencia()"></div>
+                    </div>
+                    
+                    ${state.esEmergencia ? `
+                        <div style="margin-top: 20px;">
+                            <div class="input-group">
+                                <label class="input-label">Motivo de la emergencia *</label>
+                                <textarea 
+                                    class="input" 
+                                    placeholder="Describa el motivo..."
+                                    style="min-height: 80px;"
+                                    onchange="state.motivoEmergencia = this.value; guardarEstado();"
+                                >${state.motivoEmergencia}</textarea>
+                            </div>
+                            <div class="input-group">
+                                <label class="input-label">Centro de traslado *</label>
+                                <select class="input" onchange="state.centroEmergencia = this.value; guardarEstado();">
+                                    <option value="">Seleccione centro...</option>
+                                    ${Object.values(ESCUELAS_DATA).flat().map(c => `
+                                        <option value="${c}" ${state.centroEmergencia === c ? 'selected' : ''}>${c}</option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+ 
+        // ==================== PASO 4: RESUMEN ====================
+        function renderPaso4() {
+            const itemsCount = Object.values(state.inventario).filter(v => v !== '' && v > 0).length;
+            
+            return `
+                <div class="card" style="padding: 0; overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%); padding: 16px; color: white;">
+                        <h3 style="font-weight: 700;">📋 Resumen del Reporte</h3>
+                    </div>
+                    <div style="padding: 20px;">
+                        <div class="summary-list">
+                            <div class="summary-item">
+                                <span class="summary-label">📍 Zona</span>
+                                <span class="summary-value" style="background: #fef3c7; padding: 4px 12px; border-radius: 8px;">${state.zona}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">🏢 Centro</span>
+                                <span class="summary-value" style="font-size: 0.85rem;">${state.centro}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">👤 Supervisor</span>
+                                <span class="summary-value">${state.supervisor}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">🕐 Hora inicio</span>
+                                <span class="summary-value" style="color: var(--primary);">${state.horaInicio ? formatTime(state.horaInicio) : '-'}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">📦 Inventario</span>
+                                <span class="summary-value">${itemsCount} items</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">📸 Fotos</span>
+                                <span class="summary-value">${state.fotos.length}</span>
+                            </div>
+                            ${state.esEmergencia ? `
+                                <div class="summary-item" style="background: #fef2f2; margin: 0 -20px; padding: 12px 20px; border: none;">
+                                    <span class="summary-label" style="color: var(--danger); font-weight: 700;">⚠️ EMERGENCIA</span>
+                                    <span class="summary-value text-danger" style="font-size: 0.8rem;">${state.centroEmergencia}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card" style="background: linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 100%); border-color: #a7f3d0;">
+                    <p style="text-align: center; color: var(--primary-dark);">
+                        <strong>📧 El reporte se enviará a:</strong><br>
+                        <span style="color: var(--primary); font-weight: 700;">proyectoescuelasdgcp@gmail.com</span>
+                    </p>
+                </div>
+            `;
+        }
+ 
+        // ==================== EVENT HANDLERS ====================
+        function seleccionarZona(zona) {
+            state.zona = zona;
+            state.centro = '';
+            state.supervisor = '';
+            state.error = '';
+            render();
+        }
+ 
+        function seleccionarCentro(centro) {
+            state.centro = centro;
+            state.error = '';
+            render();
+        }
+ 
+        function seleccionarSupervisor(supervisor) {
+            state.supervisor = supervisor;
+            state.error = '';
+            render();
+        }
+ 
+        async function iniciarFormulario() {
+            state.error = '';
+            state.loading = true;
+            render();
+ 
+            try {
+                state.ubicacion = await obtenerUbicacion();
+                state.horaInicio = new Date();
+                state.paso = 1;
+                guardarEstado(); // Guardar al iniciar el formulario
+            } catch (err) {
+                state.error = err.message;
+            }
+            
+            state.loading = false;
+            render();
+        }
+ 
+        function cambiarCategoria(categoria) {
+            state.categoriaActiva = categoria;
+            guardarEstado();
+            render();
+        }
+ 
+        function actualizarInventario(categoria, item, valor) {
+            state.inventario[`${categoria}_${item}`] = valor === '' ? '' : parseFloat(valor) || 0;
+            guardarEstado(); // Guardar cada vez que se actualiza inventario
+        }
+ 
+        function capturarFoto(input) {
+            if (input.files && input.files[0]) {
+                state.fotoTemp = input.files[0];
+                state.modalTiempo = true;
+                render();
+            }
+        }
+ 
+        async function seleccionarTiempo(tiempo) {
+            if (state.fotoTemp) {
+                const foto = await procesarFoto(state.fotoTemp, tiempo);
+                state.fotos.push(foto);
+            }
+            state.fotoTemp = null;
+            state.modalTiempo = false;
+            guardarEstado(); // Guardar después de agregar foto
+            render();
+        }
+ 
+        function cancelarFoto() {
+            state.fotoTemp = null;
+            state.modalTiempo = false;
+            render();
+        }
+ 
+        function cerrarModal(e) {
+            if (e.target.classList.contains('modal-overlay')) {
+                cancelarFoto();
+            }
+        }
+ 
+        function eliminarFoto(index) {
+            state.fotos.splice(index, 1);
+            guardarEstado();
+            render();
+        }
+ 
+        function toggleEmergencia() {
+            state.esEmergencia = !state.esEmergencia;
+            if (!state.esEmergencia) {
+                state.motivoEmergencia = '';
+                state.centroEmergencia = '';
+            }
+            guardarEstado();
+            render();
+        }
+ 
+        function siguientePaso() {
+            state.error = '';
+            if (state.paso < 4) {
+                state.paso++;
+            }
+            guardarEstado();
+            render();
+            window.scrollTo(0, 0);
+        }
+ 
+        function anteriorPaso() {
+            state.error = '';
+            if (state.paso > 0) {
+                state.paso--;
+            }
+            guardarEstado();
+            render();
+            window.scrollTo(0, 0);
+        }
+ 
+        // ==================== INIT ====================
+        // Verificar si hay un reporte en progreso guardado
+        verificarEstadoGuardado();
+        if (!state.modalRecuperar) {
+            render();
+        }
+ 
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW error:', err));
+        }
+    </script>
+</body>
+</html>
